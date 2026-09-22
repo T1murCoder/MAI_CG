@@ -6,6 +6,7 @@
 
 namespace vk_buffer {
 
+// Создаёт host-visible, постоянно замапленный буфер (без staging-буфера и копирования)
 bool create(VkDeviceSize size, VkBufferUsageFlags usage, Buffer& out) {
 	const VkBufferCreateInfo buffer_info = {
 		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
@@ -14,6 +15,7 @@ bool create(VkDeviceSize size, VkBufferUsageFlags usage, Buffer& out) {
 		.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
 	};
 
+	// Просим VMA сразу замапить память и оптимизировать её под последовательную запись с CPU
 	const VmaAllocationCreateInfo allocation_create_info = {
 		.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT |
 				 VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
@@ -28,11 +30,13 @@ bool create(VkDeviceSize size, VkBufferUsageFlags usage, Buffer& out) {
 		return false;
 	}
 
+	// Запоминаем указатель на замапленную память, чтобы писать в буфер напрямую через memcpy
 	out.mapped = allocation_info.pMappedData;
 
 	return true;
 }
 
+// Уничтожает Vulkan-буфер и освобождает связанную с ним память VMA
 void destroy(Buffer& buffer) {
 	vmaDestroyBuffer(graphics::internal::context.allocator, buffer.buffer, buffer.allocation);
 }
