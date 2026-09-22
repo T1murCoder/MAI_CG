@@ -492,7 +492,7 @@ void update(double time) {
 	ImGui::EndDisabled();
 	ImGui::SliderFloat3("Scale", &transform_scale.x, 0.1f, 3.0f);
 
-	// Кнопка паузы активна только при включённой анимации; замораживает elapsed_anim_time на месте
+	// Кнопка паузы активна только при включённой анимации; замораживает все накопленные углы на месте
 	ImGui::SeparatorText("Animation");
 	ImGui::Checkbox("Animate", &animate_enabled);
 	ImGui::BeginDisabled(!animate_enabled);
