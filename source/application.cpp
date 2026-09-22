@@ -42,16 +42,24 @@ glm::vec3 transform_position = glm::vec3(0.0f);
 glm::vec3 transform_rotation_degrees = glm::vec3(0.0f);
 glm::vec3 transform_scale = glm::vec3(1.0f);
 
-// Состояние анимации по траектории: включена/на паузе/скорость/радиус/накопленное время
+// Состояние анимации по траектории: включена/на паузе/радиус/скорости орбиты и вращения
 bool animate_enabled = false;
 bool animate_paused = false;
-float animation_speed = 1.0f;
 float trajectory_radius = 2.0f;
-double elapsed_anim_time = 0.0;
 double last_update_time = -1.0; // -1 означает "ещё не было предыдущего кадра"
 
-constexpr float kOrbitAngularSpeed = 1.0f;        // радиан на единицу времени анимации
-constexpr float kSpinAngularSpeedDegrees = 90.0f; // градусов на единицу времени анимации
+// Независимые накопленные углы — орбита и вращение по каждой оси не связаны друг с другом
+double orbit_angle_radians = 0.0;
+double spin_angle_x_degrees = 0.0; // горизонтальная ось (наклон вперёд/назад)
+double spin_angle_y_degrees = 0.0; // вертикальная ось
+double spin_angle_z_degrees = 0.0; // горизонтальная ось (наклон вбок)
+
+float orbit_speed = 1.0f; // радиан в секунду; регулируется в UI ("Orbit Speed")
+
+// Скорости вращения по каждой оси, градусов в секунду; регулируются в UI ("Rotation Speed X/Y/Z")
+float spin_speed_x_degrees_per_sec = 0.0f;
+float spin_speed_y_degrees_per_sec = 90.0f;
+float spin_speed_z_degrees_per_sec = 0.0f;
 
 // Цвет из UI (ColorEdit4); во фрагментном шейдере умножается на процедурный цвет вершин
 glm::vec4 base_color = glm::vec4(1.0f);
@@ -61,12 +69,12 @@ glm::mat4 computeModelMatrix() {
 	glm::vec3 position = transform_position;
 	glm::vec3 rotation_degrees = transform_rotation_degrees;
 
-	// Пока анимация включена (даже на паузе), позиция/поворот управляются траекторией, а не слайдерами
+	// Пока анимация включена, позиция/поворот управляются траекторией, а не слайдерами
 	if (animate_enabled) {
-		const double angle = elapsed_anim_time * kOrbitAngularSpeed;
-		position = glm::vec3(trajectory_radius * float(std::cos(angle)), 0.0f,
-							 trajectory_radius * float(std::sin(angle)));
-		rotation_degrees.y = float(elapsed_anim_time * kSpinAngularSpeedDegrees);
+		position = glm::vec3(trajectory_radius * float(std::cos(orbit_angle_radians)), 0.0f,
+							 trajectory_radius * float(std::sin(orbit_angle_radians)));
+		rotation_degrees = glm::vec3(float(spin_angle_x_degrees), float(spin_angle_y_degrees),
+									 float(spin_angle_z_degrees));
 	}
 
 	// Порядок TRS: перенос, повороты по X/Y/Z, масштаб
@@ -456,9 +464,12 @@ void update(double time) {
 	const double dt = (last_update_time >= 0.0) ? (time - last_update_time) : 0.0;
 	last_update_time = time;
 
-	// Время анимации продвигается только когда анимация включена и не стоит на паузе
+	// Орбита и вращение по каждой из трёх осей продвигаются независимо, только пока анимация включена и не на паузе
 	if (animate_enabled && !animate_paused) {
-		elapsed_anim_time += dt * double(animation_speed);
+		orbit_angle_radians += dt * double(orbit_speed);
+		spin_angle_x_degrees += dt * double(spin_speed_x_degrees_per_sec);
+		spin_angle_y_degrees += dt * double(spin_speed_y_degrees_per_sec);
+		spin_angle_z_degrees += dt * double(spin_speed_z_degrees_per_sec);
 	}
 
 	ImGui::Begin("Cube Controls");
@@ -490,8 +501,11 @@ void update(double time) {
 		animate_paused = !animate_paused;
 	}
 	ImGui::EndDisabled();
-	ImGui::SliderFloat("Speed", &animation_speed, 0.0f, 5.0f);
+	ImGui::SliderFloat("Orbit Speed", &orbit_speed, 0.0f, 5.0f);
 	ImGui::SliderFloat("Radius", &trajectory_radius, 0.1f, 5.0f);
+	ImGui::SliderFloat("Rotation Speed X", &spin_speed_x_degrees_per_sec, -360.0f, 360.0f);
+	ImGui::SliderFloat("Rotation Speed Y", &spin_speed_y_degrees_per_sec, -360.0f, 360.0f);
+	ImGui::SliderFloat("Rotation Speed Z", &spin_speed_z_degrees_per_sec, -360.0f, 360.0f);
 
 	// Цвет, который во фрагментном шейдере умножается на процедурный цвет вершин
 	ImGui::SeparatorText("Color");
