@@ -1,11 +1,8 @@
 #include "application.hpp"
 
 #include <cmath>
-#include <cstddef>
 #include <cstring>
-#include <fstream>
 #include <iostream>
-#include <vector>
 
 #include <vulkan/vulkan.h>
 
@@ -15,6 +12,7 @@
 #include <imgui.h>
 
 #include "mesh.hpp"
+#include "pipeline.hpp"
 #include "vk_buffer.hpp"
 
 namespace application {
@@ -101,39 +99,6 @@ constexpr float kSecondCubeSpinDegreesPerSecond = 30.0f;
 // Pipeline и его layout общие для обоих кубов (различаются только дескрипторы и push constant)
 VkPipelineLayout pipeline_layout;
 VkPipeline pipeline;
-
-// Читает скомпилированный SPIR-V файл и создаёт из него VkShaderModule
-VkShaderModule loadShaderModule(const char* filename) {
-	const std::string path = std::string(SHADER_DIR) + filename;
-
-	std::ifstream file(path, std::ios::binary | std::ios::ate);
-	if (!file.is_open()) {
-		std::cerr << "Failed to open shader file: " << path << '\n';
-		return VK_NULL_HANDLE;
-	}
-
-	// Открыли файл с позицией в конце (ios::ate), поэтому tellg() сразу даёт его размер
-	const size_t size = size_t(file.tellg());
-	std::vector<char> code(size);
-	file.seekg(0);
-	file.read(code.data(), std::streamsize(size));
-	file.close();
-
-	const VkShaderModuleCreateInfo create_info = {
-		.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-		.codeSize = code.size(),
-		.pCode = reinterpret_cast<const uint32_t*>(code.data()),
-	};
-
-	VkShaderModule module = VK_NULL_HANDLE;
-	if (vkCreateShaderModule(graphics::internal::context.device, &create_info, nullptr,
-							 &module) != VK_SUCCESS) {
-		std::cerr << "Failed to create shader module: " << path << '\n';
-		return VK_NULL_HANDLE;
-	}
-
-	return module;
-}
 
 // Создаёт вершинный, индексный и два uniform-буфера, сразу копируя в них данные куба
 bool createBuffers() {
@@ -253,122 +218,8 @@ bool createDescriptors() {
 	return true;
 }
 
-// Создаёт graphics pipeline: шейдеры, формат вершин, растеризация, блендинг, layout
+// Создаёт pipeline layout (набор дескрипторов + push constant с цветом) и сам graphics pipeline
 bool createPipeline() {
-	auto& context = graphics::internal::context;
-
-	const VkShaderModule vertex_shader = loadShaderModule("cube.vert.spv");
-	const VkShaderModule fragment_shader = loadShaderModule("cube.frag.spv");
-	if (vertex_shader == VK_NULL_HANDLE || fragment_shader == VK_NULL_HANDLE) {
-		return false;
-	}
-
-	// Две стадии шейдеров: вершинная и фрагментная
-	const VkPipelineShaderStageCreateInfo stages[] = {
-		{
-			.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-			.stage = VK_SHADER_STAGE_VERTEX_BIT,
-			.module = vertex_shader,
-			.pName = "main",
-		},
-		{
-			.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-			.stage = VK_SHADER_STAGE_FRAGMENT_BIT,
-			.module = fragment_shader,
-			.pName = "main",
-		},
-	};
-
-	const VkVertexInputBindingDescription binding = {
-		.binding = 0,
-		.stride = sizeof(mesh::Vertex),
-		.inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
-	};
-
-	// Формат вершины для пайплайна: позиция (location 0) и цвет (location 1)
-	const VkVertexInputAttributeDescription attributes[] = {
-		{
-			.location = 0,
-			.binding = 0,
-			.format = VK_FORMAT_R32G32B32_SFLOAT,
-			.offset = offsetof(mesh::Vertex, position),
-		},
-		{
-			.location = 1,
-			.binding = 0,
-			.format = VK_FORMAT_R32G32B32_SFLOAT,
-			.offset = offsetof(mesh::Vertex, color),
-		},
-	};
-
-	const VkPipelineVertexInputStateCreateInfo vertex_input = {
-		.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-		.vertexBindingDescriptionCount = 1,
-		.pVertexBindingDescriptions = &binding,
-		.vertexAttributeDescriptionCount = sizeof(attributes) / sizeof(attributes[0]),
-		.pVertexAttributeDescriptions = attributes,
-	};
-
-	// Список треугольников (каждые 3 индекса — отдельный треугольник)
-	const VkPipelineInputAssemblyStateCreateInfo input_assembly = {
-		.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
-		.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-	};
-
-	// Сами значения viewport/scissor не заданы здесь — они динамические (см. dynamic_state ниже)
-	const VkPipelineViewportStateCreateInfo viewport_state = {
-		.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
-		.viewportCount = 1,
-		.scissorCount = 1,
-	};
-
-	// Отсечение задних граней; передние грани — с обходом против часовой стрелки (проверено эмпирически)
-	const VkPipelineRasterizationStateCreateInfo rasterization = {
-		.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
-		.polygonMode = VK_POLYGON_MODE_FILL,
-		.cullMode = VK_CULL_MODE_BACK_BIT,
-		.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
-		.lineWidth = 1.0f,
-	};
-
-	// Мультисемплинг отключён — один сэмпл на пиксель
-	const VkPipelineMultisampleStateCreateInfo multisample = {
-		.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-		.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
-	};
-
-	// Тест и запись глубины включены — нужны для правильной отрисовки объёмного куба
-	const VkPipelineDepthStencilStateCreateInfo depth_stencil = {
-		.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
-		.depthTestEnable = VK_TRUE,
-		.depthWriteEnable = VK_TRUE,
-		.depthCompareOp = VK_COMPARE_OP_LESS,
-	};
-
-	// Блендинг отключён, пишем во все 4 канала (RGBA)
-	const VkPipelineColorBlendAttachmentState color_blend_attachment = {
-		.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-						   VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
-	};
-
-	const VkPipelineColorBlendStateCreateInfo color_blend = {
-		.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-		.attachmentCount = 1,
-		.pAttachments = &color_blend_attachment,
-	};
-
-	// Viewport и scissor можно будет менять каждый кадр без пересоздания pipeline (важно при ресайзе окна)
-	const VkDynamicState dynamic_states[] = {
-		VK_DYNAMIC_STATE_VIEWPORT,
-		VK_DYNAMIC_STATE_SCISSOR,
-	};
-
-	const VkPipelineDynamicStateCreateInfo dynamic_state = {
-		.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
-		.dynamicStateCount = sizeof(dynamic_states) / sizeof(dynamic_states[0]),
-		.pDynamicStates = dynamic_states,
-	};
-
 	// Push constant с цветом из UI (vec4), доступен фрагментному шейдеру
 	const VkPushConstantRange push_constant_range = {
 		.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
@@ -376,49 +227,16 @@ bool createPipeline() {
 		.size = sizeof(glm::vec4),
 	};
 
-	const VkPipelineLayoutCreateInfo layout_info = {
-		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-		.setLayoutCount = 1,
-		.pSetLayouts = &descriptor_set_layout,
-		.pushConstantRangeCount = 1,
-		.pPushConstantRanges = &push_constant_range,
-	};
-
-	if (vkCreatePipelineLayout(context.device, &layout_info, nullptr, &pipeline_layout) != VK_SUCCESS) {
-		std::cerr << "Failed to create Vulkan pipeline layout\n";
+	if (!pipeline::createLayout({ &descriptor_set_layout, 1 }, { &push_constant_range, 1 },
+								pipeline_layout)) {
 		return false;
 	}
 
-	const VkGraphicsPipelineCreateInfo pipeline_info = {
-		.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
-		.stageCount = sizeof(stages) / sizeof(stages[0]),
-		.pStages = stages,
-		.pVertexInputState = &vertex_input,
-		.pInputAssemblyState = &input_assembly,
-		.pViewportState = &viewport_state,
-		.pRasterizationState = &rasterization,
-		.pMultisampleState = &multisample,
-		.pDepthStencilState = &depth_stencil,
-		.pColorBlendState = &color_blend,
-		.pDynamicState = &dynamic_state,
+	return pipeline::create({
+		.vertex_shader = "cube.vert.spv",
+		.fragment_shader = "cube.frag.spv",
 		.layout = pipeline_layout,
-		.renderPass = context.render_pass,
-		.subpass = 0,
-	};
-
-	const VkResult result = vkCreateGraphicsPipelines(context.device, VK_NULL_HANDLE, 1, &pipeline_info,
-													   nullptr, &pipeline);
-
-	// Шейдерные модули больше не нужны после создания pipeline — сразу их уничтожаем
-	vkDestroyShaderModule(context.device, vertex_shader, nullptr);
-	vkDestroyShaderModule(context.device, fragment_shader, nullptr);
-
-	if (result != VK_SUCCESS) {
-		std::cerr << "Failed to create Vulkan graphics pipeline\n";
-		return false;
-	}
-
-	return true;
+	}, pipeline);
 }
 
 } // namespace
