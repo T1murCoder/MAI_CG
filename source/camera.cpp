@@ -76,6 +76,10 @@ glm::mat4 Camera::projection(float aspect) const {
 	return proj;
 }
 
+glm::vec3 Camera::eyePosition() const {
+	return position;
+}
+
 // Слайдер FoV активен только для перспективы, размер видимой области — только для ортографии
 void Camera::drawUi() {
 	ImGui::SeparatorText("Camera");

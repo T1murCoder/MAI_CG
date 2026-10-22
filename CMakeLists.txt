@@ -3,7 +3,7 @@ include(FetchContent)
 
 project(vulkan-starter-app LANGUAGES C CXX)
 
-add_executable(${PROJECT_NAME} source/main.cpp source/graphics_internal.cpp source/application.cpp source/vk_buffer.cpp source/geometry.cpp source/mesh.cpp source/pipeline.cpp source/transform.cpp source/animation.cpp source/camera.cpp source/model.cpp source/scene.cpp)
+add_executable(${PROJECT_NAME} source/main.cpp source/graphics_internal.cpp source/application.cpp source/vk_buffer.cpp source/geometry.cpp source/mesh.cpp source/pipeline.cpp source/transform.cpp source/animation.cpp source/camera.cpp source/model.cpp source/scene.cpp source/material.cpp source/lighting.cpp)
 
 if(LINUX)
 	target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra -Wno-missing-field-initializers)

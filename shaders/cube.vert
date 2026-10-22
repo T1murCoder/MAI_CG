@@ -9,11 +9,14 @@ layout(location = 2) in vec3 inNormal;
 
 layout(location = 0) out vec3 fragColor;
 layout(location = 1) out vec3 fragNormal;
+layout(location = 2) out vec3 fragWorldPosition;
 
-// Переводит вершину в clip space и передаёт её цвет и нормаль дальше на интерполяцию по треугольнику
+// Переводит вершину в мир и в clip space; цвет, нормаль и мировая позиция интерполируются по треугольнику
 void main() {
-	gl_Position = scene.view_projection * object.model * vec4(inPosition, 1.0);
+	const vec4 world_position = object.model * vec4(inPosition, 1.0);
+	gl_Position = scene.view_projection * world_position;
+
 	fragColor = inColor;
-	// Нормаль в мировых координатах; при неравномерном масштабе понадобится обратная транспонированная матрица
-	fragNormal = mat3(object.model) * inNormal;
+	fragNormal = mat3(object.normal_matrix) * inNormal;
+	fragWorldPosition = world_position.xyz;
 }

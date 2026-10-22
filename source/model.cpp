@@ -12,7 +12,7 @@ using shader::ModelUniforms;
 
 Model::Model(const Description& description)
 	: name(description.name), mesh(description.mesh), transform(description.transform),
-	  animation(description.animation), color(description.color) {}
+	  animation(description.animation), material(description.material) {}
 
 bool Model::create(VkDescriptorSetLayout model_set_layout, VkDescriptorPool pool) {
 	auto& context = graphics::internal::context;
@@ -62,11 +62,15 @@ void Model::update(double dt) {
 	animation.update(dt);
 }
 
-// Копируем матрицу модели и цвет напрямую в замапленную память uniform-буфера модели
+// Матрица нормалей — обратная транспонированная к матрице модели: при неравномерном масштабе
+// просто mat3(model) наклонила бы нормали, и они перестали бы быть перпендикулярны поверхности
 void Model::uploadUniforms() {
+	const glm::mat4 model = animation.apply(transform).matrix();
 	const ModelUniforms uniforms = {
-		.model = animation.apply(transform).matrix(),
-		.color = color,
+		.model = model,
+		.normal_matrix = glm::transpose(glm::inverse(model)),
+		.albedo = glm::vec4(material.albedo, 1.0f),
+		.specular = glm::vec4(material.specular, material.shininess),
 	};
 	std::memcpy(uniform_buffer.mapped, &uniforms, sizeof(uniforms));
 }
@@ -88,9 +92,7 @@ void Model::drawUi() {
 	if (ImGui::CollapsingHeader(name.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
 		transform.drawUi();
 		animation.drawUi();
-
-		ImGui::SeparatorText("Color");
-		ImGui::ColorEdit4("Color", &color.x);
+		material.drawUi();
 	}
 	ImGui::PopID();
 }

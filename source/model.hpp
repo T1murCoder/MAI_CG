@@ -7,11 +7,12 @@
 #include <glm/glm.hpp>
 
 #include "animation.hpp"
+#include "material.hpp"
 #include "mesh.hpp"
 #include "transform.hpp"
 #include "vk_buffer.hpp"
 
-// Объект сцены: меш (общий с другими моделями), положение, анимация, цвет
+// Объект сцены: меш (общий с другими моделями), положение, анимация, материал
 // и собственные uniform-буфер с набором дескрипторов (set 1 в шейдерах)
 class Model {
 public:
@@ -21,7 +22,7 @@ public:
 		const Mesh* mesh = nullptr;
 		Transform transform;
 		Animation animation;
-		glm::vec4 color = glm::vec4(1.0f);
+		Material material;
 	};
 
 	explicit Model(const Description& description);
@@ -35,13 +36,13 @@ public:
 	// Продвигает анимацию модели на dt секунд
 	void update(double dt);
 
-	// Записывает матрицу модели и цвет в uniform-буфер; вызывать только после ожидания fence кадра
+	// Записывает матрицы модели и нормалей и материал в uniform-буфер; вызывать только после ожидания fence кадра
 	void uploadUniforms();
 
 	// Привязывает набор дескрипторов модели (set 1) и её меш и рисует её
 	void draw(VkCommandBuffer command_buffer, VkPipelineLayout pipeline_layout) const;
 
-	// Сворачиваемая секция с трансформацией, анимацией и цветом модели в текущем окне ImGui
+	// Сворачиваемая секция с трансформацией, анимацией и материалом модели в текущем окне ImGui
 	void drawUi();
 
 private:
@@ -49,7 +50,7 @@ private:
 	const Mesh* mesh;
 	Transform transform;
 	Animation animation;
-	glm::vec4 color; // во фрагментном шейдере умножается на процедурный цвет вершин
+	Material material;
 
 	vk_buffer::Buffer uniform_buffer;
 	VkDescriptorSet descriptor_set = VK_NULL_HANDLE;

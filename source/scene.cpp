@@ -92,6 +92,7 @@ void Scene::drawUi() {
 	ImGui::Begin("Scene");
 
 	camera.drawUi();
+	lighting.drawUi();
 
 	for (Model& model : models) {
 		model.drawUi();
@@ -102,9 +103,11 @@ void Scene::drawUi() {
 
 // Запись в uniform-буферы безопасна: prepare() уже дождался завершения предыдущего кадра
 void Scene::record(VkCommandBuffer command_buffer, float aspect) {
-	const SceneUniforms scene_uniforms = {
+	SceneUniforms scene_uniforms = {
 		.view_projection = camera.projection(aspect) * camera.view(),
+		.camera_position = glm::vec4(camera.eyePosition(), 1.0f),
 	};
+	lighting.fill(scene_uniforms);
 	std::memcpy(scene_uniform_buffer.mapped, &scene_uniforms, sizeof(scene_uniforms));
 
 	for (Model& model : models) {
@@ -202,7 +205,7 @@ bool Scene::createModels() {
 		.mesh = &cube_mesh,
 		.transform = { .position = glm::vec3(2.0f, 0.0f, 0.0f) },
 		.animation = Animation(true, 0.0f, 0.0f, glm::vec3(0.0f, 30.0f, 0.0f)),
-		.color = glm::vec4(1.0f, 0.55f, 0.15f, 1.0f),
+		.material = { .albedo = glm::vec3(1.0f, 0.55f, 0.15f) },
 	});
 
 	if (models.size() > kMaxModels) {
