@@ -1,12 +1,11 @@
 #include "scene.hpp"
 
+#include <cstring>
 #include <iostream>
 
 #include <glm/glm.hpp>
 
 #include <imgui.h>
-
-#include <cstring>
 
 #include "graphics_internal.hpp"
 #include "pipeline.hpp"
@@ -203,7 +202,6 @@ bool Scene::createModels() {
 		.animation = Animation(true, 0.0f, 0.0f, glm::vec3(0.0f, 30.0f, 0.0f)),
 		.color = glm::vec4(1.0f, 0.55f, 0.15f, 1.0f),
 	});
-
 
 	if (models.size() > kMaxModels) {
 		std::cerr << "Too many models in scene: " << models.size() << " > " << kMaxModels << '\n';
