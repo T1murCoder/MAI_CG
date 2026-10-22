@@ -1,6 +1,5 @@
 #include "application.hpp"
 
-#include <cmath>
 #include <cstring>
 #include <iostream>
 
@@ -11,8 +10,10 @@
 
 #include <imgui.h>
 
+#include "animation.hpp"
 #include "mesh.hpp"
 #include "pipeline.hpp"
+#include "transform.hpp"
 #include "vk_buffer.hpp"
 
 namespace application {
@@ -35,54 +36,14 @@ vk_buffer::Buffer uniform_buffer_2;
 // Режим проекции первого куба: true — перспективная, false — ортографическая
 bool use_perspective_projection = true;
 
-// Ручные параметры трансформации первого куба, задаются слайдерами в UI
-glm::vec3 transform_position = glm::vec3(0.0f);
-glm::vec3 transform_rotation_degrees = glm::vec3(0.0f);
-glm::vec3 transform_scale = glm::vec3(1.0f);
-
-// Состояние анимации по траектории: включена/на паузе/радиус/скорости орбиты и вращения
-bool animate_enabled = false;
-bool animate_paused = false;
-float trajectory_radius = 2.0f;
 double last_update_time = -1.0; // -1 означает "ещё не было предыдущего кадра"
 
-// Независимые накопленные углы — орбита и вращение по каждой оси не связаны друг с другом
-double orbit_angle_radians = 0.0;
-double spin_angle_x_degrees = 0.0; // горизонтальная ось (наклон вперёд/назад)
-double spin_angle_y_degrees = 0.0; // вертикальная ось
-double spin_angle_z_degrees = 0.0; // горизонтальная ось (наклон вбок)
-
-float orbit_speed = 1.0f; // радиан в секунду; регулируется в UI ("Orbit Speed")
-
-// Скорости вращения по каждой оси, градусов в секунду; регулируются в UI ("Rotation Speed X/Y/Z")
-float spin_speed_x_degrees_per_sec = 0.0f;
-float spin_speed_y_degrees_per_sec = 90.0f;
-float spin_speed_z_degrees_per_sec = 0.0f;
+// Первый куб: трансформация из UI-слайдеров и анимация по орбите, включаемая из UI
+Transform cube_transform;
+Animation cube_animation;
 
 // Цвет из UI (ColorEdit4); во фрагментном шейдере умножается на процедурный цвет вершин
 glm::vec4 base_color = glm::vec4(1.0f);
-
-// Строит матрицу модели первого куба: из траектории анимации либо из ручных UI-слайдеров
-glm::mat4 computeModelMatrix() {
-	glm::vec3 position = transform_position;
-	glm::vec3 rotation_degrees = transform_rotation_degrees;
-
-	// Пока анимация включена, позиция/поворот управляются траекторией, а не слайдерами
-	if (animate_enabled) {
-		position = glm::vec3(trajectory_radius * float(std::cos(orbit_angle_radians)), 0.0f,
-							 trajectory_radius * float(std::sin(orbit_angle_radians)));
-		rotation_degrees = glm::vec3(float(spin_angle_x_degrees), float(spin_angle_y_degrees),
-									 float(spin_angle_z_degrees));
-	}
-
-	// Порядок TRS: перенос, повороты по X/Y/Z, масштаб
-	glm::mat4 model = glm::translate(glm::mat4(1.0f), position);
-	model = glm::rotate(model, glm::radians(rotation_degrees.x), glm::vec3(1.0f, 0.0f, 0.0f));
-	model = glm::rotate(model, glm::radians(rotation_degrees.y), glm::vec3(0.0f, 1.0f, 0.0f));
-	model = glm::rotate(model, glm::radians(rotation_degrees.z), glm::vec3(0.0f, 0.0f, 1.0f));
-	model = glm::scale(model, transform_scale);
-	return model;
-}
 
 // Один descriptor set layout на двоих и два независимых набора дескрипторов (по кубу на набор)
 VkDescriptorSetLayout descriptor_set_layout;
@@ -90,11 +51,11 @@ VkDescriptorPool descriptor_pool;
 VkDescriptorSet descriptor_set;
 VkDescriptorSet descriptor_set_2;
 
-// Второй куб: фиксированное смещение, независимое автономное вращение, фиксированный цвет —
-// никак не связан с UI-состоянием (трансформацией/цветом/анимацией) первого куба
-const glm::vec3 kSecondCubeOffset = glm::vec3(2.0f, 0.0f, 0.0f);
+// Второй куб: стоит в точке (2, 0, 0) и постоянно вращается вокруг Y со скоростью 30°/с без орбиты;
+// фиксированный цвет — никак не связан с UI-состоянием первого куба
+Transform second_cube_transform = { .position = glm::vec3(2.0f, 0.0f, 0.0f) };
+Animation second_cube_animation(true, 0.0f, 0.0f, glm::vec3(0.0f, 30.0f, 0.0f));
 const glm::vec4 kSecondCubeColor = glm::vec4(1.0f, 0.55f, 0.15f, 1.0f);
-constexpr float kSecondCubeSpinDegreesPerSecond = 30.0f;
 
 // Pipeline и его layout общие для обоих кубов (различаются только дескрипторы и push constant)
 VkPipelineLayout pipeline_layout;
@@ -282,13 +243,8 @@ void update(double time) {
 	const double dt = (last_update_time >= 0.0) ? (time - last_update_time) : 0.0;
 	last_update_time = time;
 
-	// Орбита и вращение по каждой из трёх осей продвигаются независимо, только пока анимация включена и не на паузе
-	if (animate_enabled && !animate_paused) {
-		orbit_angle_radians += dt * double(orbit_speed);
-		spin_angle_x_degrees += dt * double(spin_speed_x_degrees_per_sec);
-		spin_angle_y_degrees += dt * double(spin_speed_y_degrees_per_sec);
-		spin_angle_z_degrees += dt * double(spin_speed_z_degrees_per_sec);
-	}
+	cube_animation.update(dt);
+	second_cube_animation.update(dt);
 
 	ImGui::Begin("Cube Controls");
 
@@ -302,28 +258,8 @@ void update(double time) {
 		use_perspective_projection = false;
 	}
 
-	// Слайдеры позиции/поворота отключены во время анимации по траектории — ей отдан контроль
-	ImGui::SeparatorText("Transform");
-	ImGui::BeginDisabled(animate_enabled);
-	ImGui::SliderFloat3("Position", &transform_position.x, -3.0f, 3.0f);
-	ImGui::SliderFloat3("Rotation", &transform_rotation_degrees.x, -180.0f, 180.0f);
-	ImGui::EndDisabled();
-	ImGui::SliderFloat3("Scale", &transform_scale.x, 0.1f, 3.0f);
-
-	// Кнопка паузы активна только при включённой анимации; замораживает все накопленные углы на месте
-	ImGui::SeparatorText("Animation");
-	ImGui::Checkbox("Animate", &animate_enabled);
-	ImGui::BeginDisabled(!animate_enabled);
-	ImGui::SameLine();
-	if (ImGui::Button(animate_paused ? "Play" : "Pause")) {
-		animate_paused = !animate_paused;
-	}
-	ImGui::EndDisabled();
-	ImGui::SliderFloat("Orbit Speed", &orbit_speed, 0.0f, 5.0f);
-	ImGui::SliderFloat("Radius", &trajectory_radius, 0.1f, 5.0f);
-	ImGui::SliderFloat("Rotation Speed X", &spin_speed_x_degrees_per_sec, -360.0f, 360.0f);
-	ImGui::SliderFloat("Rotation Speed Y", &spin_speed_y_degrees_per_sec, -360.0f, 360.0f);
-	ImGui::SliderFloat("Rotation Speed Z", &spin_speed_z_degrees_per_sec, -360.0f, 360.0f);
+	cube_transform.drawUi();
+	cube_animation.drawUi();
 
 	// Цвет, который во фрагментном шейдере умножается на процедурный цвет вершин
 	ImGui::SeparatorText("Color");
@@ -342,7 +278,7 @@ void render(const graphics::internal::FrameData& fd) {
 	const float aspect = float(context.swapchain_extent.width) / float(context.swapchain_extent.height);
 
 	UBO ubo{};
-	ubo.model = computeModelMatrix();
+	ubo.model = cube_animation.apply(cube_transform).matrix();
 	ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 3.0f), glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 
 	if (use_perspective_projection) {
@@ -359,11 +295,9 @@ void render(const graphics::internal::FrameData& fd) {
 	// Копируем MVP первого куба напрямую в замапленную память его uniform-буфера
 	std::memcpy(uniform_buffer.mapped, &ubo, sizeof(ubo));
 
-	// Второй куб: независимая трансформация — фиксированное смещение плюс автономное вращение по времени
+	// Второй куб: своя трансформация и своя анимация, камера та же
 	UBO ubo2{};
-	ubo2.model = glm::rotate(glm::translate(glm::mat4(1.0f), kSecondCubeOffset),
-							 glm::radians(float(last_update_time) * kSecondCubeSpinDegreesPerSecond),
-							 glm::vec3(0.0f, 1.0f, 0.0f));
+	ubo2.model = second_cube_animation.apply(second_cube_transform).matrix();
 	ubo2.view = ubo.view;
 	ubo2.proj = ubo.proj;
 
