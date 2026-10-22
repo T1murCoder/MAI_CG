@@ -9,7 +9,7 @@ layout(location = 2) in vec3 fragWorldPosition;
 
 layout(location = 0) out vec4 outColor;
 
-// Освещённость пикселя: рассеянный свет + направленный и точечные источники по модели Блинн-Фонга
+// Освещённость пикселя: рассеянный свет + направленный, точечные источники и прожекторы по Блинн-Фонгу
 void main() {
 	// После интерполяции нормаль перестаёт быть единичной — нормализуем заново
 	const vec3 N = normalize(fragNormal);
@@ -28,15 +28,24 @@ void main() {
 		color += blinnPhong(N, -scene.light_direction.xyz, V, radiance, albedo, specular, shininess);
 	}
 
-	// Точечные источники: затухание по закону обратных квадратов 1/d²; квадрат расстояния ограничен
-	// снизу, чтобы вплотную к источнику не делить на ноль
+	// Точечные источники: затухание по закону обратных квадратов
 	for (uint i = 0; i < scene.light_counts.x; ++i) {
 		const PointLight light = point_lights[i];
-		const vec3 to_light = light.position.xyz - fragWorldPosition;
-		const float distance_squared = max(dot(to_light, to_light), 1e-4);
 
-		const vec3 L = to_light * inversesqrt(distance_squared);
-		const vec3 radiance = light.color.rgb * light.color.w / distance_squared;
+		vec3 L;
+		const float falloff = inverseSquareFalloff(light.position.xyz, fragWorldPosition, L);
+		const vec3 radiance = light.color.rgb * light.color.w * falloff;
+		color += blinnPhong(N, L, V, radiance, albedo, specular, shininess);
+	}
+
+	// Прожекторы: то же затухание, умноженное на мягкий край конуса
+	for (uint i = 0; i < scene.light_counts.y; ++i) {
+		const SpotLight light = spot_lights[i];
+
+		vec3 L;
+		const float falloff = inverseSquareFalloff(light.position.xyz, fragWorldPosition, L);
+		const float spot = spotFactor(L, light.direction.xyz, light.cutoff.x, light.cutoff.y);
+		const vec3 radiance = light.color.rgb * light.color.w * falloff * spot;
 		color += blinnPhong(N, L, V, radiance, albedo, specular, shininess);
 	}
 

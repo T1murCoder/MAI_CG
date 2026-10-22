@@ -12,7 +12,7 @@ layout(set = 0, binding = 0) uniform SceneUniforms {
 	vec4 ambient;         // rgb — цвет, w — интенсивность
 	vec4 light_direction; // xyz — нормализованное направление лучей, w — 1/0 вкл/выкл
 	vec4 light_color;     // rgb — цвет, w — интенсивность
-	uvec4 light_counts;   // x — число точечных источников
+	uvec4 light_counts;   // x — число точечных источников, y — прожекторов
 } scene;
 
 // Данные текущей модели (set 1, свой набор на каждую модель): трансформация и материал

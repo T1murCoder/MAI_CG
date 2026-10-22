@@ -17,7 +17,7 @@ struct SceneUniforms {
 	glm::vec4 ambient;         // rgb — цвет рассеянного света, w — интенсивность
 	glm::vec4 light_direction; // xyz — нормализованное направление лучей направленного света, w — 1/0 вкл/выкл
 	glm::vec4 light_color;     // rgb — цвет направленного света, w — интенсивность
-	glm::uvec4 light_counts;   // x — число точечных источников в storage-буфере, yzw пока не используются
+	glm::uvec4 light_counts;   // x — число точечных источников, y — прожекторов (в storage-буферах), zw не используются
 };
 static_assert(sizeof(SceneUniforms) == 144);
 
@@ -36,5 +36,14 @@ struct PointLight {
 	glm::vec4 color;    // rgb — цвет, w — интенсивность
 };
 static_assert(sizeof(PointLight) == 32);
+
+// Элемент массива прожекторов (set 0, binding 2, storage-буфер)
+struct SpotLight {
+	glm::vec4 position;  // xyz — положение в мире, w не используется
+	glm::vec4 direction; // xyz — нормализованное направление оси конуса, w не используется
+	glm::vec4 color;     // rgb — цвет, w — интенсивность
+	glm::vec4 cutoff;    // x — cos(внутреннего угла), y — cos(внешнего угла), zw не используются
+};
+static_assert(sizeof(SpotLight) == 64);
 
 } // namespace shader

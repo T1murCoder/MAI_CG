@@ -145,15 +145,16 @@ void Scene::record(VkCommandBuffer command_buffer, float aspect) {
 bool Scene::createDescriptors() {
 	auto& context = graphics::internal::context;
 
-	// Набор сцены: uniform-буфер (binding 0) и массив точечных источников (binding 1); набор модели: uniform-буфер
-	const VkDescriptorSetLayoutBinding scene_bindings[] = { kUniformBinding, storageBinding(1) };
+	// Набор сцены: uniform-буфер (binding 0), массивы точечных источников (binding 1) и прожекторов (binding 2);
+	// набор модели: uniform-буфер
+	const VkDescriptorSetLayoutBinding scene_bindings[] = { kUniformBinding, storageBinding(1), storageBinding(2) };
 	if (!createSetLayout(scene_bindings, scene_set_layout) ||
 		!createSetLayout({ &kUniformBinding, 1 }, model_set_layout)) {
 		return false;
 	}
 
 	// Один набор сцены плюс по одному набору на модель, в каждом по одному uniform-буферу.
-	// Storage-буферы — массивы источников света в наборе сцены (точечные и, на следующем шаге, прожекторы)
+	// Storage-буферы — массивы источников света в наборе сцены (точечные и прожекторы)
 	const VkDescriptorPoolSize pool_sizes[] = {
 		{ .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1 + kMaxModels },
 		{ .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 2 },

@@ -1,6 +1,47 @@
 #include "lighting.hpp"
 
+#include <algorithm>
+#include <cmath>
+
 #include <imgui.h>
+
+namespace {
+
+// Нулевой вектор нормализовать нельзя — тогда возвращаем направление «сверху вниз»
+glm::vec3 normalizeDirection(glm::vec3 direction) {
+	return glm::dot(direction, direction) > 0.0f ? glm::normalize(direction) : glm::vec3(0.0f, -1.0f, 0.0f);
+}
+
+// Список источников одного типа: кнопка добавления и по ветке дерева на каждый источник с кнопкой
+// удаления. Удаление откладывается до конца цикла, чтобы не менять вектор во время обхода
+template <typename Light>
+void drawLightList(const char* title, const char* item_label, std::vector<Light>& lights) {
+	ImGui::PushID(title);
+	ImGui::SeparatorText(title);
+	if (ImGui::Button("Add")) {
+		lights.push_back(Light{});
+	}
+
+	int remove_index = -1;
+	for (int i = 0; i < int(lights.size()); ++i) {
+		ImGui::PushID(i);
+		if (ImGui::TreeNodeEx("light", ImGuiTreeNodeFlags_DefaultOpen, "%s %d", item_label, i)) {
+			lights[i].drawUi();
+			if (ImGui::Button("Remove")) {
+				remove_index = i;
+			}
+			ImGui::TreePop();
+		}
+		ImGui::PopID();
+	}
+
+	if (remove_index >= 0) {
+		lights.erase(lights.begin() + remove_index);
+	}
+	ImGui::PopID();
+}
+
+} // namespace
 
 void AmbientLight::drawUi() {
 	ImGui::SeparatorText("Ambient Light");
@@ -24,25 +65,39 @@ void PointLight::drawUi() {
 	ImGui::SliderFloat("Intensity", &intensity, 0.0f, 50.0f);
 }
 
+// Углы связаны: увеличение inner подтягивает outer, уменьшение outer подтягивает inner,
+// поэтому outer >= inner всегда и мягкий край не «выворачивается»
+void SpotLight::drawUi() {
+	ImGui::DragFloat3("Position", &position.x, 0.02f);
+	ImGui::SliderFloat3("Direction", &direction.x, -1.0f, 1.0f);
+	ImGui::ColorEdit3("Color", &color.x);
+	ImGui::SliderFloat("Intensity", &intensity, 0.0f, 100.0f);
+	if (ImGui::SliderFloat("Inner Angle", &inner_degrees, 1.0f, 89.0f)) {
+		outer_degrees = std::max(outer_degrees, inner_degrees);
+	}
+	if (ImGui::SliderFloat("Outer Angle", &outer_degrees, 1.0f, 89.0f)) {
+		inner_degrees = std::min(inner_degrees, outer_degrees);
+	}
+}
+
 bool Lighting::create(VkDescriptorSet scene_set) {
-	return point_light_buffer.create(sizeof(shader::PointLight), scene_set, 1);
+	return point_light_buffer.create(sizeof(shader::PointLight), scene_set, 1) &&
+		   spot_light_buffer.create(sizeof(shader::SpotLight), scene_set, 2);
 }
 
 void Lighting::destroy() {
+	spot_light_buffer.destroy();
 	point_light_buffer.destroy();
 }
 
-// Нулевое направление нормализовать нельзя — тогда считаем, что свет падает сверху вниз
+// Источники упаковываются в формат GPU (vec3 → vec4, углы → косинусы); шейдеру сообщается,
+// сколько источников реально загружено
 void Lighting::upload(shader::SceneUniforms& uniforms) {
-	const bool has_direction = glm::dot(directional.direction, directional.direction) > 0.0f;
-	const glm::vec3 direction = has_direction ? glm::normalize(directional.direction)
-											  : glm::vec3(0.0f, -1.0f, 0.0f);
-
 	uniforms.ambient = glm::vec4(ambient.color, ambient.intensity);
-	uniforms.light_direction = glm::vec4(direction, directional.enabled ? 1.0f : 0.0f);
+	uniforms.light_direction =
+		glm::vec4(normalizeDirection(directional.direction), directional.enabled ? 1.0f : 0.0f);
 	uniforms.light_color = glm::vec4(directional.color, directional.intensity);
 
-	// Упаковываем источники в формат GPU (vec3 → vec4) и сообщаем шейдеру, сколько их реально загружено
 	std::vector<shader::PointLight> gpu_point_lights;
 	gpu_point_lights.reserve(point_lights.size());
 	for (const PointLight& light : point_lights) {
@@ -52,37 +107,27 @@ void Lighting::upload(shader::SceneUniforms& uniforms) {
 		});
 	}
 
+	std::vector<shader::SpotLight> gpu_spot_lights;
+	gpu_spot_lights.reserve(spot_lights.size());
+	for (const SpotLight& light : spot_lights) {
+		gpu_spot_lights.push_back({
+			.position = glm::vec4(light.position, 1.0f),
+			.direction = glm::vec4(normalizeDirection(light.direction), 0.0f),
+			.color = glm::vec4(light.color, light.intensity),
+			.cutoff = glm::vec4(std::cos(glm::radians(light.inner_degrees)),
+								std::cos(glm::radians(light.outer_degrees)), 0.0f, 0.0f),
+		});
+	}
+
 	uniforms.light_counts.x =
 		point_light_buffer.upload(gpu_point_lights.data(), uint32_t(gpu_point_lights.size()));
+	uniforms.light_counts.y =
+		spot_light_buffer.upload(gpu_spot_lights.data(), uint32_t(gpu_spot_lights.size()));
 }
 
 void Lighting::drawUi() {
 	ambient.drawUi();
 	directional.drawUi();
-	drawPointLightsUi();
-}
-
-// Удаление откладывается до конца цикла, чтобы не менять вектор во время обхода
-void Lighting::drawPointLightsUi() {
-	ImGui::SeparatorText("Point Lights");
-	if (ImGui::Button("Add Point Light")) {
-		point_lights.push_back(PointLight{});
-	}
-
-	int remove_index = -1;
-	for (int i = 0; i < int(point_lights.size()); ++i) {
-		ImGui::PushID(i);
-		if (ImGui::TreeNodeEx("light", ImGuiTreeNodeFlags_DefaultOpen, "Point Light %d", i)) {
-			point_lights[i].drawUi();
-			if (ImGui::Button("Remove")) {
-				remove_index = i;
-			}
-			ImGui::TreePop();
-		}
-		ImGui::PopID();
-	}
-
-	if (remove_index >= 0) {
-		point_lights.erase(point_lights.begin() + remove_index);
-	}
+	drawLightList("Point Lights", "Point Light", point_lights);
+	drawLightList("Spot Lights", "Spot Light", spot_lights);
 }
