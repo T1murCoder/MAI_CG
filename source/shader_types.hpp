@@ -3,9 +3,11 @@
 #include <glm/glm.hpp>
 
 // Структуры, которые копируются в буферы GPU. Это контракт с шейдерами: раскладка каждой структуры
-// должна совпадать с одноимённым блоком в shaders/common.glsl.
-// Uniform-буферы используют раскладку std140: vec3 там выровнен по 16 байтам, а в C++ занимает 12,
-// поэтому в структурах только vec4/mat4; static_assert ловит расхождение размеров при компиляции
+// должна совпадать с одноимённым блоком в shaders/common.glsl (uniform-блоки)
+// или shaders/lighting.glsl (элементы массивов источников света).
+// Uniform-буферы используют раскладку std140, storage-буферы — std430: в обеих vec3 выровнен
+// по 16 байтам, а в C++ занимает 12, поэтому в структурах только vec4/uvec4/mat4;
+// static_assert ловит расхождение размеров при компиляции
 namespace shader {
 
 // Общие для всех моделей данные сцены (set 0, binding 0)
@@ -15,8 +17,9 @@ struct SceneUniforms {
 	glm::vec4 ambient;         // rgb — цвет рассеянного света, w — интенсивность
 	glm::vec4 light_direction; // xyz — нормализованное направление лучей направленного света, w — 1/0 вкл/выкл
 	glm::vec4 light_color;     // rgb — цвет направленного света, w — интенсивность
+	glm::uvec4 light_counts;   // x — число точечных источников в storage-буфере, yzw пока не используются
 };
-static_assert(sizeof(SceneUniforms) == 128);
+static_assert(sizeof(SceneUniforms) == 144);
 
 // Данные одной модели (set 1, binding 0)
 struct ModelUniforms {
@@ -26,5 +29,12 @@ struct ModelUniforms {
 	glm::vec4 specular;      // rgb — цвет блика, w — коэффициент блеска (shininess)
 };
 static_assert(sizeof(ModelUniforms) == 160);
+
+// Элемент массива точечных источников (set 0, binding 1, storage-буфер)
+struct PointLight {
+	glm::vec4 position; // xyz — положение в мире, w не используется
+	glm::vec4 color;    // rgb — цвет, w — интенсивность
+};
+static_assert(sizeof(PointLight) == 32);
 
 } // namespace shader

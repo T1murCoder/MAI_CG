@@ -2,6 +2,7 @@
 
 #include <cstring>
 #include <iostream>
+#include <span>
 
 #include <glm/glm.hpp>
 
@@ -15,19 +16,30 @@ using shader::SceneUniforms;
 
 namespace {
 
-// Создаёт layout набора из одного uniform-буфера в binding 0, видимого вершинному и фрагментному шейдерам
-bool createUniformSetLayout(VkDescriptorSetLayout& out) {
-	const VkDescriptorSetLayoutBinding binding = {
-		.binding = 0,
-		.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-		.descriptorCount = 1,
-		.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-	};
+// Uniform-буфер в binding 0 набора — данные сцены или модели, нужны обоим шейдерам
+constexpr VkDescriptorSetLayoutBinding kUniformBinding = {
+	.binding = 0,
+	.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+	.descriptorCount = 1,
+	.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+};
 
+// Storage-буфер с массивом источников света — читается только во фрагментном шейдере
+constexpr VkDescriptorSetLayoutBinding storageBinding(uint32_t binding) {
+	return {
+		.binding = binding,
+		.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+		.descriptorCount = 1,
+		.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+	};
+}
+
+// Создаёт layout набора дескрипторов из списка привязок
+bool createSetLayout(std::span<const VkDescriptorSetLayoutBinding> bindings, VkDescriptorSetLayout& out) {
 	const VkDescriptorSetLayoutCreateInfo layout_info = {
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-		.bindingCount = 1,
-		.pBindings = &binding,
+		.bindingCount = uint32_t(bindings.size()),
+		.pBindings = bindings.data(),
 	};
 
 	if (vkCreateDescriptorSetLayout(graphics::internal::context.device, &layout_info, nullptr, &out) !=
@@ -71,6 +83,7 @@ void Scene::destroy() {
 		model.destroy();
 	}
 
+	lighting.destroy();
 	vk_buffer::destroy(scene_uniform_buffer);
 
 	vkDestroyDescriptorPool(context.device, descriptor_pool, nullptr);
@@ -102,13 +115,14 @@ void Scene::drawUi() {
 	ImGui::End();
 }
 
-// Запись в uniform-буферы безопасна: prepare() уже дождался завершения предыдущего кадра
+// Запись в буферы и пересоздание storage-буферов безопасны: prepare() уже дождался завершения
+// предыдущего кадра, а набор сцены в этом кадре ещё не привязан
 void Scene::record(VkCommandBuffer command_buffer, float aspect) {
 	SceneUniforms scene_uniforms = {
 		.view_projection = camera.projection(aspect) * camera.view(),
 		.camera_position = glm::vec4(camera.eyePosition(), 1.0f),
 	};
-	lighting.fill(scene_uniforms);
+	lighting.upload(scene_uniforms);
 	std::memcpy(scene_uniform_buffer.mapped, &scene_uniforms, sizeof(scene_uniforms));
 
 	for (Model& model : models) {
@@ -126,17 +140,20 @@ void Scene::record(VkCommandBuffer command_buffer, float aspect) {
 	}
 }
 
-// Создаёт layout'ы наборов сцены и моделей, пул дескрипторов и набор сцены с его uniform-буфером;
-// наборы моделей выделяют сами модели в Model::create
+// Создаёт layout'ы наборов сцены и моделей, пул дескрипторов и набор сцены с его uniform-буфером
+// и storage-буферами источников света; наборы моделей выделяют сами модели в Model::create
 bool Scene::createDescriptors() {
 	auto& context = graphics::internal::context;
 
-	if (!createUniformSetLayout(scene_set_layout) || !createUniformSetLayout(model_set_layout)) {
+	// Набор сцены: uniform-буфер (binding 0) и массив точечных источников (binding 1); набор модели: uniform-буфер
+	const VkDescriptorSetLayoutBinding scene_bindings[] = { kUniformBinding, storageBinding(1) };
+	if (!createSetLayout(scene_bindings, scene_set_layout) ||
+		!createSetLayout({ &kUniformBinding, 1 }, model_set_layout)) {
 		return false;
 	}
 
 	// Один набор сцены плюс по одному набору на модель, в каждом по одному uniform-буферу.
-	// Storage-буферы зарезервированы заранее под массивы источников света (точечные и прожекторы)
+	// Storage-буферы — массивы источников света в наборе сцены (точечные и, на следующем шаге, прожекторы)
 	const VkDescriptorPoolSize pool_sizes[] = {
 		{ .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1 + kMaxModels },
 		{ .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 2 },
@@ -189,7 +206,8 @@ bool Scene::createDescriptors() {
 
 	vkUpdateDescriptorSets(context.device, 1, &write, 0, nullptr);
 
-	return true;
+	// Storage-буферы источников света сами привязываются к своим binding набора сцены
+	return lighting.create(scene_descriptor_set);
 }
 
 // Создаёт модели сцены и их GPU-ресурсы; меш и дескрипторы уже должны быть созданы

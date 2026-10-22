@@ -1,8 +1,13 @@
 #pragma once
 
+#include <vector>
+
+#include <vulkan/vulkan_core.h>
+
 #include <glm/glm.hpp>
 
 #include "shader_types.hpp"
+#include "storage_array.hpp"
 
 // Рассеянный свет: приходит отовсюду одинаково, освещает все поверхности без учёта нормали
 struct AmbientLight {
@@ -22,17 +27,41 @@ struct DirectionalLight {
 	void drawUi();
 };
 
+// Точечный источник: светит из точки во все стороны, яркость падает как 1/d²
+struct PointLight {
+	glm::vec3 position = glm::vec3(0.0f, 2.0f, 0.0f);
+	glm::vec3 color = glm::vec3(1.0f);
+	float intensity = 5.0f;
+
+	void drawUi();
+};
+
 // Все источники света сцены: хранит их параметры на CPU, рисует для них UI
-// и упаковывает в формат GPU
+// и загружает их в uniform-данные и storage-буферы сцены
 class Lighting {
 public:
-	// Записывает параметры рассеянного и направленного света в uniform-данные сцены
-	void fill(shader::SceneUniforms& uniforms) const;
+	// Создаёт storage-буфер точечных источников и привязывает его к binding 1 набора сцены
+	bool create(VkDescriptorSet scene_set);
+	void destroy();
 
-	// Секции всех источников света в текущем окне ImGui
+	// Записывает рассеянный и направленный свет в uniform-данные сцены, загружает массив точечных
+	// источников в storage-буфер и записывает их число. Вызывать после ожидания fence кадра
+	// и до привязки набора сцены (см. StorageArray::upload)
+	void upload(shader::SceneUniforms& uniforms);
+
+	// Секции всех источников света в текущем окне ImGui; точечные источники можно добавлять и удалять
 	void drawUi();
 
 private:
+	void drawPointLightsUi();
+
 	AmbientLight ambient;
 	DirectionalLight directional;
+
+	// Стартовый точечный источник — тёплый свет рядом с кубами, над полом
+	std::vector<PointLight> point_lights = {
+		{ .position = glm::vec3(1.0f, 1.0f, 1.5f), .color = glm::vec3(1.0f, 0.85f, 0.6f), .intensity = 4.0f },
+	};
+
+	StorageArray point_light_buffer;
 };

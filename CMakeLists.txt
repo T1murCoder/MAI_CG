@@ -3,7 +3,7 @@ include(FetchContent)
 
 project(vulkan-starter-app LANGUAGES C CXX)
 
-add_executable(${PROJECT_NAME} source/main.cpp source/graphics_internal.cpp source/application.cpp source/vk_buffer.cpp source/geometry.cpp source/mesh.cpp source/pipeline.cpp source/transform.cpp source/animation.cpp source/camera.cpp source/model.cpp source/scene.cpp source/material.cpp source/lighting.cpp)
+add_executable(${PROJECT_NAME} source/main.cpp source/graphics_internal.cpp source/application.cpp source/vk_buffer.cpp source/geometry.cpp source/mesh.cpp source/pipeline.cpp source/transform.cpp source/animation.cpp source/camera.cpp source/model.cpp source/scene.cpp source/material.cpp source/lighting.cpp source/storage_array.cpp)
 
 if(LINUX)
 	target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
@@ -107,8 +107,8 @@ if(GLSLC_FOUND)
 		add_custom_command(
 			OUTPUT ${SHADER_BINARY_PATH}
 			COMMAND glslc ${SHADER_SOURCE} -o ${SHADER_BINARY_PATH}
-			# common.glsl подключается через #include во все шейдеры — его правка должна их пересобирать
-			DEPENDS ${SHADER_SOURCE} ${CMAKE_SOURCE_DIR}/shaders/common.glsl
+			# Подключаемые через #include файлы: их правка должна пересобирать шейдеры
+			DEPENDS ${SHADER_SOURCE} ${CMAKE_SOURCE_DIR}/shaders/common.glsl ${CMAKE_SOURCE_DIR}/shaders/lighting.glsl
 			COMMENT "Compiling ${SHADER_FILE} shader"
 		)
 
