@@ -9,6 +9,9 @@
 #include "shader_types.hpp"
 #include "storage_array.hpp"
 
+// Нормализует направление источника; нулевой вектор нормализовать нельзя — тогда «сверху вниз»
+glm::vec3 normalizeDirection(glm::vec3 direction);
+
 // Рассеянный свет: приходит отовсюду одинаково, освещает все поверхности без учёта нормали
 struct AmbientLight {
 	glm::vec3 color = glm::vec3(1.0f);
@@ -66,6 +69,10 @@ public:
 	// Секции всех источников света в текущем окне ImGui; точечные источники и прожекторы
 	// можно добавлять и удалять
 	void drawUi();
+
+	// Текущие источники — для их визуализации
+	const std::vector<PointLight>& pointLights() const;
+	const std::vector<SpotLight>& spotLights() const;
 
 private:
 	AmbientLight ambient;

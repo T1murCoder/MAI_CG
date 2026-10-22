@@ -3,7 +3,7 @@ include(FetchContent)
 
 project(vulkan-starter-app LANGUAGES C CXX)
 
-add_executable(${PROJECT_NAME} source/main.cpp source/graphics_internal.cpp source/application.cpp source/vk_buffer.cpp source/geometry.cpp source/mesh.cpp source/pipeline.cpp source/transform.cpp source/animation.cpp source/camera.cpp source/model.cpp source/scene.cpp source/material.cpp source/lighting.cpp source/storage_array.cpp)
+add_executable(${PROJECT_NAME} source/main.cpp source/graphics_internal.cpp source/application.cpp source/vk_buffer.cpp source/geometry.cpp source/mesh.cpp source/pipeline.cpp source/transform.cpp source/animation.cpp source/camera.cpp source/model.cpp source/scene.cpp source/material.cpp source/lighting.cpp source/storage_array.cpp source/light_gizmos.cpp)
 
 if(LINUX)
 	target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
@@ -109,6 +109,7 @@ if(GLSLC_FOUND)
 			COMMAND glslc ${SHADER_SOURCE} -o ${SHADER_BINARY_PATH}
 			# Подключаемые через #include файлы: их правка должна пересобирать шейдеры
 			DEPENDS ${SHADER_SOURCE} ${CMAKE_SOURCE_DIR}/shaders/common.glsl ${CMAKE_SOURCE_DIR}/shaders/lighting.glsl
+					${CMAKE_SOURCE_DIR}/shaders/gizmo.glsl
 			COMMENT "Compiling ${SHADER_FILE} shader"
 		)
 
@@ -123,6 +124,8 @@ if(GLSLC_FOUND)
 
 	compile_shader(cube.vert)
 	compile_shader(cube.frag)
+	compile_shader(unlit.vert)
+	compile_shader(unlit.frag)
 
 	add_custom_target(shaders DEPENDS ${_SHADER_BINARIES})
 	add_dependencies(${PROJECT_NAME} shaders)

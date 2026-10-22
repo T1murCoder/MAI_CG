@@ -6,6 +6,7 @@
 #include <vulkan/vulkan_core.h>
 
 #include "camera.hpp"
+#include "light_gizmos.hpp"
 #include "lighting.hpp"
 #include "mesh.hpp"
 #include "model.hpp"
@@ -24,10 +25,10 @@ public:
 	// Обрабатывает ввод для камеры и продвигает анимации всех моделей на dt секунд
 	void update(double dt);
 
-	// Окно ImGui с настройками камеры, освещения и всех моделей
+	// Окно ImGui с настройками камеры, освещения, визуализации источников и всех моделей
 	void drawUi();
 
-	// Обновляет uniform-буферы и записывает команды отрисовки всех моделей;
+	// Обновляет uniform-буферы и записывает команды отрисовки всех моделей и визуализаций источников;
 	// вызывать внутри render pass после ожидания fence кадра
 	void record(VkCommandBuffer command_buffer, float aspect);
 
@@ -41,6 +42,7 @@ private:
 
 	Camera camera;
 	Lighting lighting;
+	LightGizmos light_gizmos;
 
 	// Геометрия, общая для всех моделей сцены: куб и плоскость (пол)
 	Mesh cube_mesh;
@@ -58,7 +60,9 @@ private:
 	vk_buffer::Buffer scene_uniform_buffer;
 	VkDescriptorSet scene_descriptor_set = VK_NULL_HANDLE;
 
-	// Pipeline и его layout общие для всех моделей (различаются только наборы дескрипторов set 1)
+	// Один pipeline layout на все пайплайны сцены: set 0, set 1 и push constant визуализаций источников.
+	// Общий layout совместим сам с собой, поэтому набор сцены остаётся привязанным при смене пайплайна.
+	// Pipeline моделей общий для всех моделей (различаются только наборы дескрипторов set 1)
 	VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
 	VkPipeline pipeline = VK_NULL_HANDLE;
 };

@@ -76,6 +76,7 @@ bool Scene::create() {
 void Scene::destroy() {
 	auto& context = graphics::internal::context;
 
+	light_gizmos.destroy();
 	vkDestroyPipeline(context.device, pipeline, nullptr);
 	vkDestroyPipelineLayout(context.device, pipeline_layout, nullptr);
 
@@ -107,6 +108,7 @@ void Scene::drawUi() {
 
 	camera.drawUi();
 	lighting.drawUi();
+	light_gizmos.drawUi();
 
 	for (Model& model : models) {
 		model.drawUi();
@@ -138,6 +140,9 @@ void Scene::record(VkCommandBuffer command_buffer, float aspect) {
 	for (const Model& model : models) {
 		model.draw(command_buffer, pipeline_layout);
 	}
+
+	// Тот же pipeline layout — набор сцены (set 0) остаётся привязанным
+	light_gizmos.record(command_buffer, lighting);
 }
 
 // Создаёт layout'ы наборов сцены и моделей, пул дескрипторов и набор сцены с его uniform-буфером
@@ -249,17 +254,24 @@ bool Scene::createModels() {
 	return true;
 }
 
-// Создаёт pipeline layout (set 0 — сцена, set 1 — модель) и сам graphics pipeline
+// Создаёт общий pipeline layout (set 0 — сцена, set 1 — модель, push constant визуализаций),
+// pipeline моделей и пайплайны визуализации источников. Шейдеры моделей push constant не используют,
+// а неосвещаемые шейдеры — набор модели; layout это допускает
 bool Scene::createPipeline() {
 	const VkDescriptorSetLayout set_layouts[] = { scene_set_layout, model_set_layout };
 
-	if (!pipeline::createLayout(set_layouts, {}, pipeline_layout)) {
+	if (!pipeline::createLayout(set_layouts, { &LightGizmos::kPushConstantRange, 1 }, pipeline_layout)) {
 		return false;
 	}
 
-	return pipeline::create({
-		.vertex_shader = "cube.vert.spv",
-		.fragment_shader = "cube.frag.spv",
-		.layout = pipeline_layout,
-	}, pipeline);
+	if (!pipeline::create({
+			.vertex_shader = "cube.vert.spv",
+			.fragment_shader = "cube.frag.spv",
+			.layout = pipeline_layout,
+		}, pipeline)) {
+		return false;
+	}
+
+	// Маркер источника — маленький куб из общего меша куба
+	return light_gizmos.create(pipeline_layout, &cube_mesh);
 }

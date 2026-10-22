@@ -1,5 +1,6 @@
 #include "geometry.hpp"
 
+#include <cmath>
 #include <cstddef>
 
 namespace geometry {
@@ -70,6 +71,41 @@ MeshData makeCube() {
 MeshData makePlane() {
 	MeshData data;
 	appendQuad(data, glm::vec3(0.0f), kUpBasis, whiteColor);
+	return data;
+}
+
+// Вершины: 0 — вершина конуса, 1 — центр основания, 2…segments+1 — точки окружности основания.
+// Цвет линий задаётся при отрисовке, нормаль для линий не нужна
+MeshData makeConeLines(uint32_t segments) {
+	MeshData data;
+	const glm::vec3 white(1.0f);
+	const glm::vec3 axis(0.0f, 0.0f, 1.0f);
+
+	data.vertices.push_back({ glm::vec3(0.0f), white, axis });
+	data.vertices.push_back({ axis, white, axis });
+
+	const uint16_t first = 2;
+	for (uint32_t i = 0; i < segments; ++i) {
+		const float angle = 2.0f * float(M_PI) * float(i) / float(segments);
+		data.vertices.push_back({ glm::vec3(std::cos(angle), std::sin(angle), 1.0f), white, axis });
+	}
+
+	// Ось конуса показывает направление прожектора
+	data.indices.insert(data.indices.end(), { 0, 1 });
+
+	for (uint32_t i = 0; i < segments; ++i) {
+		const uint16_t current = uint16_t(first + i);
+		const uint16_t next = uint16_t(first + (i + 1) % segments);
+
+		// Отрезок окружности основания
+		data.indices.insert(data.indices.end(), { current, next });
+
+		// Образующие через каждую четверть окружности показывают угол раствора
+		if (i % (segments / 4) == 0) {
+			data.indices.insert(data.indices.end(), { 0, current });
+		}
+	}
+
 	return data;
 }
 

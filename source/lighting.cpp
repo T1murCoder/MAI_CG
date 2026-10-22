@@ -7,11 +7,6 @@
 
 namespace {
 
-// Нулевой вектор нормализовать нельзя — тогда возвращаем направление «сверху вниз»
-glm::vec3 normalizeDirection(glm::vec3 direction) {
-	return glm::dot(direction, direction) > 0.0f ? glm::normalize(direction) : glm::vec3(0.0f, -1.0f, 0.0f);
-}
-
 // Список источников одного типа: кнопка добавления и по ветке дерева на каждый источник с кнопкой
 // удаления. Удаление откладывается до конца цикла, чтобы не менять вектор во время обхода
 template <typename Light>
@@ -42,6 +37,10 @@ void drawLightList(const char* title, const char* item_label, std::vector<Light>
 }
 
 } // namespace
+
+glm::vec3 normalizeDirection(glm::vec3 direction) {
+	return glm::dot(direction, direction) > 0.0f ? glm::normalize(direction) : glm::vec3(0.0f, -1.0f, 0.0f);
+}
 
 void AmbientLight::drawUi() {
 	ImGui::SeparatorText("Ambient Light");
@@ -130,4 +129,12 @@ void Lighting::drawUi() {
 	directional.drawUi();
 	drawLightList("Point Lights", "Point Light", point_lights);
 	drawLightList("Spot Lights", "Spot Light", spot_lights);
+}
+
+const std::vector<PointLight>& Lighting::pointLights() const {
+	return point_lights;
+}
+
+const std::vector<SpotLight>& Lighting::spotLights() const {
+	return spot_lights;
 }

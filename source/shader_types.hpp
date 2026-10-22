@@ -3,8 +3,8 @@
 #include <glm/glm.hpp>
 
 // Структуры, которые копируются в буферы GPU. Это контракт с шейдерами: раскладка каждой структуры
-// должна совпадать с одноимённым блоком в shaders/common.glsl (uniform-блоки)
-// или shaders/lighting.glsl (элементы массивов источников света).
+// должна совпадать с одноимённым блоком в shaders/common.glsl (uniform-блоки),
+// shaders/lighting.glsl (элементы массивов источников света) или shaders/gizmo.glsl (push constant).
 // Uniform-буферы используют раскладку std140, storage-буферы — std430: в обеих vec3 выровнен
 // по 16 байтам, а в C++ занимает 12, поэтому в структурах только vec4/uvec4/mat4;
 // static_assert ловит расхождение размеров при компиляции
@@ -45,5 +45,12 @@ struct SpotLight {
 	glm::vec4 cutoff;    // x — cos(внутреннего угла), y — cos(внешнего угла), zw не используются
 };
 static_assert(sizeof(SpotLight) == 64);
+
+// Push constant неосвещаемых фигур-визуализаций источников света (shaders/gizmo.glsl)
+struct GizmoPushConstants {
+	glm::mat4 model;
+	glm::vec4 color; // rgb — постоянный цвет фигуры, w не используется
+};
+static_assert(sizeof(GizmoPushConstants) == 80);
 
 } // namespace shader
