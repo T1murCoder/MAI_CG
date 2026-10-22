@@ -1,7 +1,7 @@
 #include "application.hpp"
 
-#include <cstring>
 #include <iostream>
+#include <vector>
 
 #include <vulkan/vulkan.h>
 
@@ -9,77 +9,35 @@
 
 #include <imgui.h>
 
-#include "animation.hpp"
 #include "camera.hpp"
 #include "mesh.hpp"
+#include "model.hpp"
 #include "pipeline.hpp"
-#include "transform.hpp"
-#include "vk_buffer.hpp"
 
 namespace application {
 
 namespace {
 
-// Данные, передаваемые в вершинный шейдер через uniform-буфер
-struct UBO {
-	glm::mat4 model;
-	glm::mat4 view;
-	glm::mat4 proj;
-};
-
-// Геометрия куба (общая для обоих объектов) и два независимых uniform-буфера - по одному на куб
+// Геометрия куба, общая для всех моделей сцены
 Mesh cube_mesh;
-vk_buffer::Buffer uniform_buffer;
-vk_buffer::Buffer uniform_buffer_2;
 
-// Камера, общая для обоих кубов: даёт матрицы вида и проекции
+// Камера, общая для всех моделей: даёт матрицы вида и проекции
 Camera camera;
 
 double last_update_time = -1.0; // -1 означает "ещё не было предыдущего кадра"
 
-// Первый куб: трансформация из UI-слайдеров и анимация по орбите, включаемая из UI
-Transform cube_transform;
-Animation cube_animation;
+// Модели сцены; у каждой своя трансформация, анимация, цвет, uniform-буфер и набор дескрипторов
+std::vector<Model> models;
 
-// Цвет из UI (ColorEdit4); во фрагментном шейдере умножается на процедурный цвет вершин
-glm::vec4 base_color = glm::vec4(1.0f);
-
-// Один descriptor set layout на двоих и два независимых набора дескрипторов (по кубу на набор)
+// Один descriptor set layout на все модели и пул, из которого выделяются их наборы дескрипторов
 VkDescriptorSetLayout descriptor_set_layout;
 VkDescriptorPool descriptor_pool;
-VkDescriptorSet descriptor_set;
-VkDescriptorSet descriptor_set_2;
 
-// Второй куб: стоит в точке (2, 0, 0) и постоянно вращается вокруг Y со скоростью 30°/с без орбиты;
-// фиксированный цвет — никак не связан с UI-состоянием первого куба
-Transform second_cube_transform = { .position = glm::vec3(2.0f, 0.0f, 0.0f) };
-Animation second_cube_animation(true, 0.0f, 0.0f, glm::vec3(0.0f, 30.0f, 0.0f));
-const glm::vec4 kSecondCubeColor = glm::vec4(1.0f, 0.55f, 0.15f, 1.0f);
-
-// Pipeline и его layout общие для обоих кубов (различаются только дескрипторы и push constant)
+// Pipeline и его layout общие для всех моделей (различаются только дескрипторы и push constant)
 VkPipelineLayout pipeline_layout;
 VkPipeline pipeline;
 
-// Создаёт меш куба и два uniform-буфера
-bool createBuffers() {
-	// Меш общий для обоих кубов — геометрия не дублируется
-	if (!cube_mesh.create(geometry::makeCube())) {
-		return false;
-	}
-
-	// Два uniform-буфера под MVP — по одному на каждый из двух кубов сцены
-	if (!vk_buffer::create(sizeof(UBO), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, uniform_buffer)) {
-		return false;
-	}
-
-	if (!vk_buffer::create(sizeof(UBO), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, uniform_buffer_2)) {
-		return false;
-	}
-
-	return true;
-}
-
-// Создаёт layout, пул и два набора дескрипторов — по одному на каждый uniform-буфер/куб
+// Создаёт layout и пул дескрипторов; сами наборы выделяют модели в Model::create
 bool createDescriptors() {
 	auto& context = graphics::internal::context;
 
@@ -103,7 +61,7 @@ bool createDescriptors() {
 		return false;
 	}
 
-	// Пул рассчитан на 2 набора дескрипторов — по числу кубов на сцене
+	// Пул с запасом: по одному набору с одним uniform-буфером на модель
 	const VkDescriptorPoolSize pool_size = {
 		.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
 		.descriptorCount = 4,
@@ -121,58 +79,38 @@ bool createDescriptors() {
 		return false;
 	}
 
-	// Выделяем оба набора дескрипторов одним вызовом из одного layout
-	const VkDescriptorSetLayout set_layouts[2] = { descriptor_set_layout, descriptor_set_layout };
-	VkDescriptorSet sets[2] = {};
+	return true;
+}
 
-	const VkDescriptorSetAllocateInfo alloc_info = {
-		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-		.descriptorPool = descriptor_pool,
-		.descriptorSetCount = 2,
-		.pSetLayouts = set_layouts,
-	};
+// Создаёт модели сцены и их GPU-ресурсы; меш и дескрипторы уже должны быть созданы
+bool createModels() {
+	// Первый куб: трансформация и анимация по орбите управляются из UI
+	models.emplace_back(Model::Description{
+		.name = "Cube",
+		.mesh = &cube_mesh,
+	});
 
-	if (vkAllocateDescriptorSets(context.device, &alloc_info, sets) != VK_SUCCESS) {
-		std::cerr << "Failed to allocate Vulkan descriptor sets\n";
-		return false;
+	// Второй куб: стоит в точке (2, 0, 0) и постоянно вращается вокруг Y со скоростью 30°/с без орбиты
+	models.emplace_back(Model::Description{
+		.name = "Second Cube",
+		.mesh = &cube_mesh,
+		.transform = { .position = glm::vec3(2.0f, 0.0f, 0.0f) },
+		.animation = Animation(true, 0.0f, 0.0f, glm::vec3(0.0f, 30.0f, 0.0f)),
+		.color = glm::vec4(1.0f, 0.55f, 0.15f, 1.0f),
+	});
+
+	for (Model& model : models) {
+		if (!model.create(descriptor_set_layout, descriptor_pool)) {
+			return false;
+		}
 	}
-
-	descriptor_set = sets[0];
-	descriptor_set_2 = sets[1];
-
-	// Привязываем каждый набор дескрипторов к своему uniform-буферу
-	const VkDescriptorBufferInfo buffer_infos[2] = {
-		{ .buffer = uniform_buffer.buffer, .offset = 0, .range = sizeof(UBO) },
-		{ .buffer = uniform_buffer_2.buffer, .offset = 0, .range = sizeof(UBO) },
-	};
-
-	const VkWriteDescriptorSet writes[2] = {
-		{
-			.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-			.dstSet = descriptor_set,
-			.dstBinding = 0,
-			.descriptorCount = 1,
-			.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-			.pBufferInfo = &buffer_infos[0],
-		},
-		{
-			.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-			.dstSet = descriptor_set_2,
-			.dstBinding = 0,
-			.descriptorCount = 1,
-			.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-			.pBufferInfo = &buffer_infos[1],
-		},
-	};
-
-	vkUpdateDescriptorSets(context.device, 2, writes, 0, nullptr);
 
 	return true;
 }
 
 // Создаёт pipeline layout (набор дескрипторов + push constant с цветом) и сам graphics pipeline
 bool createPipeline() {
-	// Push constant с цветом из UI (vec4), доступен фрагментному шейдеру
+	// Push constant с цветом модели (vec4), доступен фрагментному шейдеру
 	const VkPushConstantRange push_constant_range = {
 		.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
 		.offset = 0,
@@ -193,13 +131,17 @@ bool createPipeline() {
 
 } // namespace
 
-// Инициализация ресурсов сцены: буферы геометрии/uniform, дескрипторы, pipeline
+// Инициализация ресурсов сцены: меш, дескрипторы, модели, pipeline
 bool initialize() {
-	if (!createBuffers()) {
+	if (!cube_mesh.create(geometry::makeCube())) {
 		return false;
 	}
 
 	if (!createDescriptors()) {
+		return false;
+	}
+
+	if (!createModels()) {
 		return false;
 	}
 
@@ -219,11 +161,13 @@ void shutdown() {
 	vkDestroyPipeline(context.device, pipeline, nullptr);
 	vkDestroyPipelineLayout(context.device, pipeline_layout, nullptr);
 
+	for (Model& model : models) {
+		model.destroy();
+	}
+
 	vkDestroyDescriptorPool(context.device, descriptor_pool, nullptr);
 	vkDestroyDescriptorSetLayout(context.device, descriptor_set_layout, nullptr);
 
-	vk_buffer::destroy(uniform_buffer);
-	vk_buffer::destroy(uniform_buffer_2);
 	cube_mesh.destroy();
 }
 
@@ -233,47 +177,37 @@ void update(double time) {
 	const double dt = (last_update_time >= 0.0) ? (time - last_update_time) : 0.0;
 	last_update_time = time;
 
-	cube_animation.update(dt);
-	second_cube_animation.update(dt);
+	for (Model& model : models) {
+		model.update(dt);
+	}
 
 	ImGui::Begin("Cube Controls");
 
 	camera.drawUi();
 
-	cube_transform.drawUi();
-	cube_animation.drawUi();
-
-	// Цвет, который во фрагментном шейдере умножается на процедурный цвет вершин
-	ImGui::SeparatorText("Color");
-	ImGui::ColorEdit4("Cube Color", &base_color.x);
+	for (Model& model : models) {
+		model.drawUi();
+	}
 
 	ImGui::End();
 
 	ImGui::ShowDemoWindow();
 }
 
-// Записывает команды отрисовки кадра: считает матрицы и рисует оба куба в одном render pass
+// Записывает команды отрисовки кадра: обновляет uniform-буферы и рисует все модели в одном render pass
 void render(const graphics::internal::FrameData& fd) {
 	auto& context = graphics::internal::context;
 
 	// Соотношение сторон окна нужно живым каждый кадр — окно может быть изменено в размере
 	const float aspect = float(context.swapchain_extent.width) / float(context.swapchain_extent.height);
 
-	UBO ubo{};
-	ubo.model = cube_animation.apply(cube_transform).matrix();
-	ubo.view = camera.view();
-	ubo.proj = camera.projection(aspect);
+	const glm::mat4 view = camera.view();
+	const glm::mat4 proj = camera.projection(aspect);
 
-	// Копируем MVP первого куба напрямую в замапленную память его uniform-буфера
-	std::memcpy(uniform_buffer.mapped, &ubo, sizeof(ubo));
-
-	// Второй куб: своя трансформация и своя анимация, камера та же
-	UBO ubo2{};
-	ubo2.model = second_cube_animation.apply(second_cube_transform).matrix();
-	ubo2.view = ubo.view;
-	ubo2.proj = ubo.proj;
-
-	std::memcpy(uniform_buffer_2.mapped, &ubo2, sizeof(ubo2));
+	// Запись в uniform-буферы безопасна: prepare() уже дождался завершения предыдущего кадра
+	for (Model& model : models) {
+		model.uploadUniforms(view, proj);
+	}
 
 	// Command buffer нужно начинать и завершать заново каждый кадр — фреймворк это не делает сам
 	const VkCommandBufferBeginInfo begin_info = {
@@ -314,24 +248,9 @@ void render(const graphics::internal::FrameData& fd) {
 	const VkRect2D scissor = { .extent = context.swapchain_extent };
 	vkCmdSetScissor(fd.command_buffer, 0, 1, &scissor);
 
-	// Первый куб: свой набор дескрипторов, цвет из UI, общий меш
-	vkCmdBindDescriptorSets(fd.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, 1,
-							&descriptor_set, 0, nullptr);
-
-	vkCmdPushConstants(fd.command_buffer, pipeline_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-					   sizeof(glm::vec4), &base_color);
-
-	cube_mesh.bind(fd.command_buffer);
-	cube_mesh.draw(fd.command_buffer);
-
-	// Второй куб: другой набор дескрипторов и фиксированный цвет; меш тот же и уже привязан
-	vkCmdBindDescriptorSets(fd.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, 1,
-							&descriptor_set_2, 0, nullptr);
-
-	vkCmdPushConstants(fd.command_buffer, pipeline_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-					   sizeof(glm::vec4), &kSecondCubeColor);
-
-	cube_mesh.draw(fd.command_buffer);
+	for (const Model& model : models) {
+		model.draw(fd.command_buffer, pipeline_layout);
+	}
 
 	vkCmdEndRenderPass(fd.command_buffer);
 
