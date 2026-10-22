@@ -54,7 +54,8 @@ bool createSetLayout(std::span<const VkDescriptorSetLayoutBinding> bindings, VkD
 } // namespace
 
 bool Scene::create() {
-	if (!cube_mesh.create(geometry::makeCube()) || !plane_mesh.create(geometry::makePlane())) {
+	if (!cube_mesh.create(geometry::makeCube()) || !white_cube_mesh.create(geometry::makeCube(false)) ||
+		!plane_mesh.create(geometry::makePlane())) {
 		return false;
 	}
 
@@ -92,11 +93,13 @@ void Scene::destroy() {
 	vkDestroyDescriptorSetLayout(context.device, scene_set_layout, nullptr);
 
 	plane_mesh.destroy();
+	white_cube_mesh.destroy();
 	cube_mesh.destroy();
 }
 
 void Scene::update(double dt) {
 	camera.update(dt);
+	lighting.update(dt);
 
 	for (Model& model : models) {
 		model.update(dt);
@@ -120,10 +123,8 @@ void Scene::drawUi() {
 // Запись в буферы и пересоздание storage-буферов безопасны: prepare() уже дождался завершения
 // предыдущего кадра, а набор сцены в этом кадре ещё не привязан
 void Scene::record(VkCommandBuffer command_buffer, float aspect) {
-	SceneUniforms scene_uniforms = {
-		.view_projection = camera.projection(aspect) * camera.view(),
-		.camera_position = glm::vec4(camera.eyePosition(), 1.0f),
-	};
+	SceneUniforms scene_uniforms = {};
+	camera.fill(scene_uniforms, aspect);
 	lighting.upload(scene_uniforms);
 	std::memcpy(scene_uniform_buffer.mapped, &scene_uniforms, sizeof(scene_uniforms));
 
@@ -238,6 +239,52 @@ bool Scene::createModels() {
 		.mesh = &plane_mesh,
 		.transform = { .position = glm::vec3(0.0f, -1.0f, 0.0f), .scale = glm::vec3(12.0f, 1.0f, 12.0f) },
 		.material = { .albedo = glm::vec3(0.8f), .specular = glm::vec3(0.2f), .shininess = 16.0f },
+	});
+
+	const Material wall_material = { .albedo = glm::vec3(0.7f), .specular = glm::vec3(0.1f), .shininess = 8.0f };
+	models.emplace_back(Model::Description{
+		.name = "Back Wall",
+		.mesh = &plane_mesh,
+		.transform = { .position = glm::vec3(0.0f, 2.0f, -6.0f), .rotation_degrees = glm::vec3(90.0f, 0.0f, 0.0f),
+					   .scale = glm::vec3(12.0f, 1.0f, 6.0f) },
+		.material = wall_material,
+	});
+	models.emplace_back(Model::Description{
+		.name = "Left Wall",
+		.mesh = &plane_mesh,
+		.transform = { .position = glm::vec3(-6.0f, 2.0f, 0.0f), .rotation_degrees = glm::vec3(0.0f, 0.0f, -90.0f),
+					   .scale = glm::vec3(6.0f, 1.0f, 12.0f) },
+		.material = wall_material,
+	});
+
+	// Кубы с контрастными материалами: металлический (тёмный, с ярким резким бликом) и матовый (без блика)
+	models.emplace_back(Model::Description{
+		.name = "Metal Cube",
+		.mesh = &white_cube_mesh,
+		.transform = { .position = glm::vec3(-3.0f, -0.5f, -3.0f) },
+		.material = { .albedo = glm::vec3(0.25f), .specular = glm::vec3(1.0f), .shininess = 256.0f },
+	});
+	models.emplace_back(Model::Description{
+		.name = "Matte Cube",
+		.mesh = &white_cube_mesh,
+		.transform = { .position = glm::vec3(0.0f, -0.5f, -4.0f) },
+		.material = { .albedo = glm::vec3(0.3f, 0.75f, 0.4f), .specular = glm::vec3(0.0f), .shininess = 1.0f },
+	});
+
+	// Белый куб на полу со своей стеной-фоном: на него с боков светят тёплый и холодный прожекторы
+	// (см. Lighting::spot_lights). Блик слабый, чтобы не «белить» окрашенные светом грани
+	models.emplace_back(Model::Description{
+		.name = "Spotlit Cube",
+		.mesh = &white_cube_mesh,
+		.transform = { .position = glm::vec3(4.0f, -0.5f, -2.0f) },
+		.material = { .albedo = glm::vec3(0.9f), .specular = glm::vec3(0.2f), .shininess = 64.0f },
+	});
+	models.emplace_back(Model::Description{
+		.name = "Spotlit Cube Wall",
+		.mesh = &plane_mesh,
+		.transform = { .position = glm::vec3(4.0f, 1.0f, -3.5f), .rotation_degrees = glm::vec3(90.0f, 0.0f, 0.0f),
+					   .scale = glm::vec3(4.0f, 1.0f, 4.0f) },
+		.material = wall_material,
 	});
 
 	if (models.size() > kMaxModels) {

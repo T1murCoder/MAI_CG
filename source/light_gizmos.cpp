@@ -34,7 +34,7 @@ glm::mat4 orientationAlong(glm::vec3 direction) {
 // вершина — в положении прожектора, ось — по его направлению, радиус основания — под угол раствора
 glm::mat4 coneMatrix(const SpotLight& light, float half_angle_degrees) {
 	const float radius = kConeLength * std::tan(glm::radians(half_angle_degrees));
-	return glm::translate(glm::mat4(1.0f), light.position) * orientationAlong(normalizeDirection(light.direction)) *
+	return glm::translate(glm::mat4(1.0f), light.worldPosition()) * orientationAlong(light.worldDirection()) *
 		   glm::scale(glm::mat4(1.0f), glm::vec3(radius, radius, kConeLength));
 }
 
@@ -87,10 +87,10 @@ void LightGizmos::record(VkCommandBuffer command_buffer, const Lighting& lightin
 	vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, marker_pipeline);
 	marker->bind(command_buffer);
 	for (const PointLight& light : lighting.pointLights()) {
-		drawMesh(command_buffer, *marker, markerMatrix(light.position), light.color);
+		drawMesh(command_buffer, *marker, markerMatrix(light.worldPosition()), light.color);
 	}
 	for (const SpotLight& light : lighting.spotLights()) {
-		drawMesh(command_buffer, *marker, markerMatrix(light.position), light.color);
+		drawMesh(command_buffer, *marker, markerMatrix(light.worldPosition()), light.color);
 	}
 
 	// Каркасные конусы прожекторов: внешний угол — белый, внутренний (граница мягкого края) — серый

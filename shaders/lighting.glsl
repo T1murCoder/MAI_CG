@@ -50,19 +50,17 @@ float spotFactor(vec3 L, vec3 spot_direction, float cos_inner, float cos_outer) 
 	return clamp((cos_theta - cos_outer) / max(cos_inner - cos_outer, 1e-4), 0.0, 1.0);
 }
 
-// Вклад одного источника по модели Блинн-Фонга: (Kd·cosθ + Ks·cos^α φ)·I, где cosθ = N·L, cosφ = N·H.
+// Вклад одного источника по модели Блинн-Фонга: (Kd + Ks·cos^α φ)·cosθ·I, где cosθ = N·L, cosφ = N·H.
 // N, L, V — единичные векторы: нормаль, направление на источник, направление на камеру;
 // radiance — цвет источника, уже умноженный на интенсивность и затухание.
-// Обратная от источника сторона не получает ни диффузного света, ни блика
+// Блик тоже умножается на cosθ (как в формуле из лекции): при скользящем свете (N·L → 0) он плавно
+// гаснет вместе с диффузной частью. Иначе блик обрывался бы ступенькой на N·L = 0, и погрешность
+// интерполяции позиции превращала бы эту границу в шум. Обратная сторона не освещается
 vec3 blinnPhong(vec3 N, vec3 L, vec3 V, vec3 radiance, vec3 albedo, vec3 specular, float shininess) {
-	const float n_dot_l = dot(N, L);
-	if (n_dot_l <= 0.0) {
-		return vec3(0.0);
-	}
-
+	const float n_dot_l = max(dot(N, L), 0.0);
 	const vec3 H = normalize(L + V);
 	const float n_dot_h = max(dot(N, H), 0.0);
-	return (albedo * n_dot_l + specular * pow(n_dot_h, shininess)) * radiance;
+	return (albedo + specular * pow(n_dot_h, shininess)) * n_dot_l * radiance;
 }
 
 #endif // LIGHTING_GLSL

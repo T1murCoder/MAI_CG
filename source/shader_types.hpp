@@ -18,8 +18,9 @@ struct SceneUniforms {
 	glm::vec4 light_direction; // xyz — нормализованное направление лучей направленного света, w — 1/0 вкл/выкл
 	glm::vec4 light_color;     // rgb — цвет направленного света, w — интенсивность
 	glm::uvec4 light_counts;   // x — число точечных источников, y — прожекторов (в storage-буферах), zw не используются
+	glm::vec4 tone_mapping;    // x — экспозиция, y — 1/0 тон-маппинг вкл/выкл, zw не используются
 };
-static_assert(sizeof(SceneUniforms) == 144);
+static_assert(sizeof(SceneUniforms) == 160);
 
 // Данные одной модели (set 1, binding 0)
 struct ModelUniforms {

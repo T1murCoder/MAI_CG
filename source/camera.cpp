@@ -76,8 +76,10 @@ glm::mat4 Camera::projection(float aspect) const {
 	return proj;
 }
 
-glm::vec3 Camera::eyePosition() const {
-	return position;
+void Camera::fill(shader::SceneUniforms& uniforms, float aspect) const {
+	uniforms.view_projection = projection(aspect) * view();
+	uniforms.camera_position = glm::vec4(position, 1.0f);
+	uniforms.tone_mapping = glm::vec4(exposure, tone_mapping ? 1.0f : 0.0f, 0.0f, 0.0f);
 }
 
 // Слайдер FoV активен только для перспективы, размер видимой области — только для ортографии
@@ -104,6 +106,12 @@ void Camera::drawUi() {
 
 	ImGui::BeginDisabled(perspective);
 	ImGui::SliderFloat("Ortho Half Height", &ortho_half_height, 0.5f, 10.0f);
+	ImGui::EndDisabled();
+
+	// Экспозиция действует только вместе с тон-маппингом: без него освещённость выше 1 обрезается
+	ImGui::Checkbox("Tone Mapping", &tone_mapping);
+	ImGui::BeginDisabled(!tone_mapping);
+	ImGui::SliderFloat("Exposure", &exposure, 0.1f, 10.0f, "%.2f", ImGuiSliderFlags_Logarithmic);
 	ImGui::EndDisabled();
 
 	ImGui::SliderFloat("Move Speed", &move_speed, 0.5f, 20.0f);

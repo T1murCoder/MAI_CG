@@ -31,7 +31,7 @@ Transform Animation::apply(const Transform& base) const {
 }
 
 // Кнопка паузы активна только при включённой анимации; замораживает все накопленные углы на месте
-void Animation::drawUi() {
+void Animation::drawUi(bool with_rotation) {
 	ImGui::SeparatorText("Animation");
 	ImGui::Checkbox("Animate", &enabled);
 	ImGui::BeginDisabled(!enabled);
@@ -42,7 +42,9 @@ void Animation::drawUi() {
 	ImGui::EndDisabled();
 	ImGui::SliderFloat("Orbit Speed", &orbit_speed, 0.0f, 5.0f);
 	ImGui::SliderFloat("Radius", &orbit_radius, 0.0f, 5.0f);
-	ImGui::SliderFloat("Rotation Speed X", &spin_speed_degrees.x, -360.0f, 360.0f);
-	ImGui::SliderFloat("Rotation Speed Y", &spin_speed_degrees.y, -360.0f, 360.0f);
-	ImGui::SliderFloat("Rotation Speed Z", &spin_speed_degrees.z, -360.0f, 360.0f);
+	if (with_rotation) {
+		ImGui::SliderFloat("Rotation Speed X", &spin_speed_degrees.x, -360.0f, 360.0f);
+		ImGui::SliderFloat("Rotation Speed Y", &spin_speed_degrees.y, -360.0f, 360.0f);
+		ImGui::SliderFloat("Rotation Speed Z", &spin_speed_degrees.z, -360.0f, 360.0f);
+	}
 }

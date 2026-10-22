@@ -49,5 +49,13 @@ void main() {
 		color += blinnPhong(N, L, V, radiance, albedo, specular, shininess);
 	}
 
+	// Тон-маппинг: экспозиция и оператор Рейнхарда x / (1 + x) плавно сжимают освещённость [0, ∞)
+	// в [0, 1) вместо обрезки по 1 — яркий цветной свет не «выгорает» в белый. Гамма-коррекцию
+	// после этого делает sRGB-формат swapchain
+	if (scene.tone_mapping.y > 0.0) {
+		color *= scene.tone_mapping.x;
+		color = color / (1.0 + color);
+	}
+
 	outColor = vec4(color, 1.0);
 }

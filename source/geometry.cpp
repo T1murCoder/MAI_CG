@@ -54,15 +54,14 @@ void appendQuad(MeshData& data, glm::vec3 center, const QuadBasis& basis, glm::v
 
 } // namespace
 
-// Каждая грань — отдельный квадрат, сдвинутый от центра на половину ребра вдоль своей нормали;
-// цвет вершины выводится из её позиции
-MeshData makeCube() {
+// Каждая грань — отдельный квадрат, сдвинутый от центра на половину ребра вдоль своей нормали
+MeshData makeCube(bool vertex_colors) {
 	MeshData data;
 	data.vertices.reserve(24);
 	data.indices.reserve(36);
 
 	for (const QuadBasis& face : kCubeFaces) {
-		appendQuad(data, 0.5f * face.n, face, colorFromPosition);
+		appendQuad(data, 0.5f * face.n, face, vertex_colors ? colorFromPosition : whiteColor);
 	}
 
 	return data;
