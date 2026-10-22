@@ -10,10 +10,11 @@
 
 namespace geometry {
 
-// Вершина меша: позиция в локальных координатах и процедурно вычисленный цвет
+// Вершина меша: позиция в локальных координатах, процедурно вычисленный цвет и нормаль поверхности
 struct Vertex {
 	glm::vec3 position;
 	glm::vec3 color;
+	glm::vec3 normal;
 };
 
 // Геометрия меша в памяти CPU: вершины и индексы треугольников (обход CCW снаружи)
@@ -22,13 +23,14 @@ struct MeshData {
 	std::vector<uint16_t> indices;
 };
 
-// Единичный куб с центром в начале координат: 8 вершин-углов и 36 индексов (по 2 треугольника на грань)
+// Единичный куб с центром в начале координат: 24 вершины (по 4 на грань, чтобы у каждой грани
+// была своя нормаль) и 36 индексов (по 2 треугольника на грань)
 MeshData makeCube();
 
 // Описание вершинного буфера для пайплайна: один буфер в binding 0, шаг — одна Vertex
 VkVertexInputBindingDescription vertexBinding();
 
-// Описание атрибутов Vertex для пайплайна: позиция (location 0) и цвет (location 1)
-std::array<VkVertexInputAttributeDescription, 2> vertexAttributes();
+// Описание атрибутов Vertex для пайплайна: позиция (location 0), цвет (location 1), нормаль (location 2)
+std::array<VkVertexInputAttributeDescription, 3> vertexAttributes();
 
 } // namespace geometry

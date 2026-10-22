@@ -11,38 +11,46 @@ glm::vec3 colorFromPosition(glm::vec3 position) {
 	return position + glm::vec3(0.5f);
 }
 
+// Грань куба: внешняя нормаль n и две оси в плоскости грани, причём cross(u, v) == n
+struct CubeFace {
+	glm::vec3 n;
+	glm::vec3 u;
+	glm::vec3 v;
+};
+
+constexpr CubeFace kCubeFaces[] = {
+	{ { 0.0f, 0.0f, -1.0f }, { 0.0f, 1.0f, 0.0f }, { 1.0f, 0.0f, 0.0f } }, // -Z
+	{ { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f } },  // +Z
+	{ { -1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 1.0f, 0.0f } }, // -X
+	{ { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f } },  // +X
+	{ { 0.0f, -1.0f, 0.0f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f } }, // -Y
+	{ { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f, 0.0f } },  // +Y
+};
+
 } // namespace
 
-// Углы единичного куба; цвет каждой вершины процедурно выводится из её позиции
+// Каждая грань строится из своих 4 вершин с общей нормалью грани. Углы идут в порядке
+// (-u-v), (+u-v), (+u+v), (-u+v): для треугольника (0, 1, 2) cross(c1 - c0, c2 - c0) ~ cross(u, v) == n,
+// то есть обход против часовой стрелки при взгляде снаружи. Цвет вершины выводится из её позиции
 MeshData makeCube() {
 	MeshData data;
+	data.vertices.reserve(24);
+	data.indices.reserve(36);
 
-	data.vertices = {
-		{ { -0.5f, -0.5f, -0.5f }, colorFromPosition({ -0.5f, -0.5f, -0.5f }) }, // 0
-		{ { 0.5f, -0.5f, -0.5f }, colorFromPosition({ 0.5f, -0.5f, -0.5f }) },   // 1
-		{ { -0.5f, 0.5f, -0.5f }, colorFromPosition({ -0.5f, 0.5f, -0.5f }) },   // 2
-		{ { 0.5f, 0.5f, -0.5f }, colorFromPosition({ 0.5f, 0.5f, -0.5f }) },     // 3
-		{ { -0.5f, -0.5f, 0.5f }, colorFromPosition({ -0.5f, -0.5f, 0.5f }) },   // 4
-		{ { 0.5f, -0.5f, 0.5f }, colorFromPosition({ 0.5f, -0.5f, 0.5f }) },     // 5
-		{ { -0.5f, 0.5f, 0.5f }, colorFromPosition({ -0.5f, 0.5f, 0.5f }) },     // 6
-		{ { 0.5f, 0.5f, 0.5f }, colorFromPosition({ 0.5f, 0.5f, 0.5f }) },       // 7
-	};
+	const glm::vec2 corners[] = { { -1.0f, -1.0f }, { 1.0f, -1.0f }, { 1.0f, 1.0f }, { -1.0f, 1.0f } };
 
-	// Индексы граней: по 6 индексов (2 треугольника) на каждую из 6 граней куба
-	data.indices = {
-		// -Z
-		0, 2, 3, 0, 3, 1,
-		// +Z
-		4, 5, 7, 4, 7, 6,
-		// -X
-		0, 4, 6, 0, 6, 2,
-		// +X
-		1, 3, 7, 1, 7, 5,
-		// -Y
-		0, 1, 5, 0, 5, 4,
-		// +Y
-		2, 6, 7, 2, 7, 3,
-	};
+	for (const CubeFace& face : kCubeFaces) {
+		const uint16_t base = uint16_t(data.vertices.size());
+
+		for (const glm::vec2& corner : corners) {
+			const glm::vec3 position = 0.5f * (face.n + corner.x * face.u + corner.y * face.v);
+			data.vertices.push_back({ position, colorFromPosition(position), face.n });
+		}
+
+		for (const uint16_t index : { 0, 1, 2, 0, 2, 3 }) {
+			data.indices.push_back(uint16_t(base + index));
+		}
+	}
 
 	return data;
 }
@@ -56,7 +64,7 @@ VkVertexInputBindingDescription vertexBinding() {
 	};
 }
 
-std::array<VkVertexInputAttributeDescription, 2> vertexAttributes() {
+std::array<VkVertexInputAttributeDescription, 3> vertexAttributes() {
 	return { {
 		{
 			.location = 0,
@@ -69,6 +77,12 @@ std::array<VkVertexInputAttributeDescription, 2> vertexAttributes() {
 			.binding = 0,
 			.format = VK_FORMAT_R32G32B32_SFLOAT,
 			.offset = offsetof(Vertex, color),
+		},
+		{
+			.location = 2,
+			.binding = 0,
+			.format = VK_FORMAT_R32G32B32_SFLOAT,
+			.offset = offsetof(Vertex, normal),
 		},
 	} };
 }

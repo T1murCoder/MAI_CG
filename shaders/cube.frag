@@ -4,6 +4,7 @@
 #include "common.glsl"
 
 layout(location = 0) in vec3 fragColor;
+layout(location = 1) in vec3 fragNormal; // пока не используется, понадобится для освещения
 
 layout(location = 0) out vec4 outColor;
 
