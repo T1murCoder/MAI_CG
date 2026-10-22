@@ -28,8 +28,7 @@ struct UBO {
 };
 
 // Геометрия куба (общая для обоих объектов) и два независимых uniform-буфера - по одному на куб
-vk_buffer::Buffer vertex_buffer;
-vk_buffer::Buffer index_buffer;
+Mesh cube_mesh;
 vk_buffer::Buffer uniform_buffer;
 vk_buffer::Buffer uniform_buffer_2;
 
@@ -61,20 +60,12 @@ const glm::vec4 kSecondCubeColor = glm::vec4(1.0f, 0.55f, 0.15f, 1.0f);
 VkPipelineLayout pipeline_layout;
 VkPipeline pipeline;
 
-// Создаёт вершинный, индексный и два uniform-буфера, сразу копируя в них данные куба
+// Создаёт меш куба и два uniform-буфера
 bool createBuffers() {
-	// Вершинный и индексный буферы общие для обоих кубов — геометрия не дублируется
-	const VkDeviceSize vertex_size = sizeof(mesh::cube_vertices[0]) * mesh::cube_vertices.size();
-	if (!vk_buffer::create(vertex_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertex_buffer)) {
+	// Меш общий для обоих кубов — геометрия не дублируется
+	if (!cube_mesh.create(geometry::makeCube())) {
 		return false;
 	}
-	std::memcpy(vertex_buffer.mapped, mesh::cube_vertices.data(), size_t(vertex_size));
-
-	const VkDeviceSize index_size = sizeof(mesh::cube_indices[0]) * mesh::cube_indices.size();
-	if (!vk_buffer::create(index_size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, index_buffer)) {
-		return false;
-	}
-	std::memcpy(index_buffer.mapped, mesh::cube_indices.data(), size_t(index_size));
 
 	// Два uniform-буфера под MVP — по одному на каждый из двух кубов сцены
 	if (!vk_buffer::create(sizeof(UBO), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, uniform_buffer)) {
@@ -233,8 +224,7 @@ void shutdown() {
 
 	vk_buffer::destroy(uniform_buffer);
 	vk_buffer::destroy(uniform_buffer_2);
-	vk_buffer::destroy(vertex_buffer);
-	vk_buffer::destroy(index_buffer);
+	cube_mesh.destroy();
 }
 
 // Обновляет состояние анимации и рисует все элементы управления ImGui
@@ -324,28 +314,24 @@ void render(const graphics::internal::FrameData& fd) {
 	const VkRect2D scissor = { .extent = context.swapchain_extent };
 	vkCmdSetScissor(fd.command_buffer, 0, 1, &scissor);
 
-	// Первый куб: свой набор дескрипторов, цвет из UI, общие вершинный/индексный буферы
+	// Первый куб: свой набор дескрипторов, цвет из UI, общий меш
 	vkCmdBindDescriptorSets(fd.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, 1,
 							&descriptor_set, 0, nullptr);
 
 	vkCmdPushConstants(fd.command_buffer, pipeline_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0,
 					   sizeof(glm::vec4), &base_color);
 
-	const VkBuffer vertex_buffers[] = { vertex_buffer.buffer };
-	const VkDeviceSize offsets[] = { 0 };
-	vkCmdBindVertexBuffers(fd.command_buffer, 0, 1, vertex_buffers, offsets);
-	vkCmdBindIndexBuffer(fd.command_buffer, index_buffer.buffer, 0, VK_INDEX_TYPE_UINT16);
+	cube_mesh.bind(fd.command_buffer);
+	cube_mesh.draw(fd.command_buffer);
 
-	vkCmdDrawIndexed(fd.command_buffer, uint32_t(mesh::cube_indices.size()), 1, 0, 0, 0);
-
-	// Второй куб: другой набор дескрипторов и фиксированный цвет; геометрия та же, буферы уже привязаны
+	// Второй куб: другой набор дескрипторов и фиксированный цвет; меш тот же и уже привязан
 	vkCmdBindDescriptorSets(fd.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, 1,
 							&descriptor_set_2, 0, nullptr);
 
 	vkCmdPushConstants(fd.command_buffer, pipeline_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0,
 					   sizeof(glm::vec4), &kSecondCubeColor);
 
-	vkCmdDrawIndexed(fd.command_buffer, uint32_t(mesh::cube_indices.size()), 1, 0, 0, 0);
+	cube_mesh.draw(fd.command_buffer);
 
 	vkCmdEndRenderPass(fd.command_buffer);
 

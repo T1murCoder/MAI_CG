@@ -7,7 +7,7 @@
 namespace pipeline {
 
 // Параметры графического конвейера, которые различаются между пайплайнами сцены;
-// формат вершины общий для всех — mesh::Vertex
+// формат вершины общий для всех — geometry::Vertex
 struct Config {
 	const char* vertex_shader;   // имя .spv-файла в SHADER_DIR
 	const char* fragment_shader; // имя .spv-файла в SHADER_DIR

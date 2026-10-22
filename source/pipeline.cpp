@@ -1,13 +1,12 @@
 #include "pipeline.hpp"
 
-#include <cstddef>
 #include <fstream>
 #include <iostream>
 #include <string>
 #include <vector>
 
+#include "geometry.hpp"
 #include "graphics_internal.hpp"
-#include "mesh.hpp"
 
 namespace pipeline {
 
@@ -92,34 +91,16 @@ bool create(const Config& config, VkPipeline& out) {
 		},
 	};
 
-	const VkVertexInputBindingDescription binding = {
-		.binding = 0,
-		.stride = sizeof(mesh::Vertex),
-		.inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
-	};
-
-	// Формат вершины для пайплайна: позиция (location 0) и цвет (location 1)
-	const VkVertexInputAttributeDescription attributes[] = {
-		{
-			.location = 0,
-			.binding = 0,
-			.format = VK_FORMAT_R32G32B32_SFLOAT,
-			.offset = offsetof(mesh::Vertex, position),
-		},
-		{
-			.location = 1,
-			.binding = 0,
-			.format = VK_FORMAT_R32G32B32_SFLOAT,
-			.offset = offsetof(mesh::Vertex, color),
-		},
-	};
+	// Формат вершины общий для всех пайплайнов — geometry::Vertex
+	const VkVertexInputBindingDescription binding = geometry::vertexBinding();
+	const auto attributes = geometry::vertexAttributes();
 
 	const VkPipelineVertexInputStateCreateInfo vertex_input = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
 		.vertexBindingDescriptionCount = 1,
 		.pVertexBindingDescriptions = &binding,
-		.vertexAttributeDescriptionCount = sizeof(attributes) / sizeof(attributes[0]),
-		.pVertexAttributeDescriptions = attributes,
+		.vertexAttributeDescriptionCount = uint32_t(attributes.size()),
+		.pVertexAttributeDescriptions = attributes.data(),
 	};
 
 	// Топология примитивов задаётся конфигом: треугольники для мешей, линии для вспомогательной геометрии

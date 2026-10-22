@@ -1,22 +1,27 @@
 #pragma once
 
-#include <array>
 #include <cstdint>
 
-#include <glm/glm.hpp>
+#include <vulkan/vulkan_core.h>
 
-namespace mesh {
+#include "geometry.hpp"
+#include "vk_buffer.hpp"
 
-// Вершина куба: позиция в локальных координатах и процедурно вычисленный цвет
-struct Vertex {
-	glm::vec3 position;
-	glm::vec3 color;
+// Геометрия меша в памяти GPU: вершинный и индексный буферы; один Mesh могут рисовать несколько моделей
+class Mesh {
+public:
+	// Создаёт вершинный и индексный буферы и копирует в них данные
+	bool create(const geometry::MeshData& data);
+	void destroy();
+
+	// Привязывает вершинный и индексный буферы к command buffer
+	void bind(VkCommandBuffer command_buffer) const;
+
+	// Рисует все треугольники меша одним экземпляром; буферы должны быть привязаны через bind()
+	void draw(VkCommandBuffer command_buffer) const;
+
+private:
+	vk_buffer::Buffer vertex_buffer;
+	vk_buffer::Buffer index_buffer;
+	uint32_t index_count = 0;
 };
-
-// 8 уникальных вершин-углов куба; цвет каждой вычисляется из позиции (см. mesh.cpp)
-extern const std::array<Vertex, 8> cube_vertices;
-
-// 36 индексов (12 треугольников, по 2 на каждую из 6 граней), обход CCW снаружи
-extern const std::array<uint16_t, 36> cube_indices;
-
-} // namespace mesh

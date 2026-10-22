@@ -1,42 +1,35 @@
 #include "mesh.hpp"
 
-namespace mesh {
+#include <cstring>
 
-namespace {
+bool Mesh::create(const geometry::MeshData& data) {
+	const VkDeviceSize vertex_size = sizeof(data.vertices[0]) * data.vertices.size();
+	if (!vk_buffer::create(vertex_size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertex_buffer)) {
+		return false;
+	}
+	std::memcpy(vertex_buffer.mapped, data.vertices.data(), size_t(vertex_size));
 
-// Отображает локальную позицию вершины [-0.5, 0.5] в цвет [0, 1] по каждой оси
-glm::vec3 colorFromPosition(glm::vec3 position) {
-	return position + glm::vec3(0.5f);
+	const VkDeviceSize index_size = sizeof(data.indices[0]) * data.indices.size();
+	if (!vk_buffer::create(index_size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, index_buffer)) {
+		return false;
+	}
+	std::memcpy(index_buffer.mapped, data.indices.data(), size_t(index_size));
+
+	index_count = uint32_t(data.indices.size());
+	return true;
 }
 
-} // namespace
+void Mesh::destroy() {
+	vk_buffer::destroy(vertex_buffer);
+	vk_buffer::destroy(index_buffer);
+}
 
-// Углы единичного куба; цвет каждой вершины процедурно выводится из её позиции
-const std::array<Vertex, 8> cube_vertices = { {
-	{ { -0.5f, -0.5f, -0.5f }, colorFromPosition({ -0.5f, -0.5f, -0.5f }) }, // 0
-	{ { 0.5f, -0.5f, -0.5f }, colorFromPosition({ 0.5f, -0.5f, -0.5f }) },   // 1
-	{ { -0.5f, 0.5f, -0.5f }, colorFromPosition({ -0.5f, 0.5f, -0.5f }) },   // 2
-	{ { 0.5f, 0.5f, -0.5f }, colorFromPosition({ 0.5f, 0.5f, -0.5f }) },     // 3
-	{ { -0.5f, -0.5f, 0.5f }, colorFromPosition({ -0.5f, -0.5f, 0.5f }) },   // 4
-	{ { 0.5f, -0.5f, 0.5f }, colorFromPosition({ 0.5f, -0.5f, 0.5f }) },     // 5
-	{ { -0.5f, 0.5f, 0.5f }, colorFromPosition({ -0.5f, 0.5f, 0.5f }) },     // 6
-	{ { 0.5f, 0.5f, 0.5f }, colorFromPosition({ 0.5f, 0.5f, 0.5f }) },       // 7
-} };
+void Mesh::bind(VkCommandBuffer command_buffer) const {
+	const VkDeviceSize offset = 0;
+	vkCmdBindVertexBuffers(command_buffer, 0, 1, &vertex_buffer.buffer, &offset);
+	vkCmdBindIndexBuffer(command_buffer, index_buffer.buffer, 0, VK_INDEX_TYPE_UINT16);
+}
 
-// Индексы граней: по 6 индексов (2 треугольника) на каждую из 6 граней куба
-const std::array<uint16_t, 36> cube_indices = {
-	// -Z
-	0, 2, 3, 0, 3, 1,
-	// +Z
-	4, 5, 7, 4, 7, 6,
-	// -X
-	0, 4, 6, 0, 6, 2,
-	// +X
-	1, 3, 7, 1, 7, 5,
-	// -Y
-	0, 1, 5, 0, 5, 4,
-	// +Y
-	2, 6, 7, 2, 7, 3,
-};
-
-} // namespace mesh
+void Mesh::draw(VkCommandBuffer command_buffer) const {
+	vkCmdDrawIndexed(command_buffer, index_count, 1, 0, 0, 0);
+}
