@@ -107,7 +107,8 @@ if(GLSLC_FOUND)
 		add_custom_command(
 			OUTPUT ${SHADER_BINARY_PATH}
 			COMMAND glslc ${SHADER_SOURCE} -o ${SHADER_BINARY_PATH}
-			DEPENDS ${SHADER_SOURCE}
+			# common.glsl подключается через #include во все шейдеры — его правка должна их пересобирать
+			DEPENDS ${SHADER_SOURCE} ${CMAKE_SOURCE_DIR}/shaders/common.glsl
 			COMMENT "Compiling ${SHADER_FILE} shader"
 		)
 

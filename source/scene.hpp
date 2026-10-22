@@ -8,8 +8,10 @@
 #include "camera.hpp"
 #include "mesh.hpp"
 #include "model.hpp"
+#include "vk_buffer.hpp"
 
-// Сцена: камера, меши, модели и общие для них Vulkan-ресурсы (дескрипторы, pipeline)
+// Сцена: камера, меши, модели и общие для них Vulkan-ресурсы (дескрипторы, pipeline).
+// В шейдерах set 0 — данные сцены (общие для всех моделей), set 1 — данные конкретной модели
 class Scene {
 public:
 	// Создаёт меши, дескрипторы, модели и pipeline
@@ -44,11 +46,16 @@ private:
 	// У каждой модели своя трансформация, анимация, цвет, uniform-буфер и набор дескрипторов
 	std::vector<Model> models;
 
-	// Один descriptor set layout на все модели и пул, из которого выделяются их наборы дескрипторов
-	VkDescriptorSetLayout descriptor_set_layout = VK_NULL_HANDLE;
+	// Layout набора сцены (set 0), layout наборов моделей (set 1) и пул, из которого выделяются все наборы
+	VkDescriptorSetLayout scene_set_layout = VK_NULL_HANDLE;
+	VkDescriptorSetLayout model_set_layout = VK_NULL_HANDLE;
 	VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
 
-	// Pipeline и его layout общие для всех моделей (различаются только дескрипторы и push constant)
+	// Uniform-буфер с общими данными сцены и его набор дескрипторов (set 0)
+	vk_buffer::Buffer scene_uniform_buffer;
+	VkDescriptorSet scene_descriptor_set = VK_NULL_HANDLE;
+
+	// Pipeline и его layout общие для всех моделей (различаются только наборы дескрипторов set 1)
 	VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
 	VkPipeline pipeline = VK_NULL_HANDLE;
 };
