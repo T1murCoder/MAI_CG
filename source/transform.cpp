@@ -14,10 +14,11 @@ glm::mat4 Transform::matrix() const {
 	return model;
 }
 
-// Ручная трансформация; во время анимации она служит базой (центр орбиты и начальный поворот)
+// Ручная трансформация; во время анимации она служит базой (центр орбиты и начальный поворот).
+// Позиция и масштаб — Drag без жёстких границ: у разных моделей (куб, пол) нужны разные диапазоны
 void Transform::drawUi() {
 	ImGui::SeparatorText("Transform");
-	ImGui::SliderFloat3("Position", &position.x, -3.0f, 3.0f);
+	ImGui::DragFloat3("Position", &position.x, 0.02f);
 	ImGui::SliderFloat3("Rotation", &rotation_degrees.x, -180.0f, 180.0f);
-	ImGui::SliderFloat3("Scale", &scale.x, 0.1f, 3.0f);
+	ImGui::DragFloat3("Scale", &scale.x, 0.02f, 0.01f, 100.0f);
 }

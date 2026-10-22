@@ -42,7 +42,7 @@ bool createUniformSetLayout(VkDescriptorSetLayout& out) {
 } // namespace
 
 bool Scene::create() {
-	if (!cube_mesh.create(geometry::makeCube())) {
+	if (!cube_mesh.create(geometry::makeCube()) || !plane_mesh.create(geometry::makePlane())) {
 		return false;
 	}
 
@@ -77,6 +77,7 @@ void Scene::destroy() {
 	vkDestroyDescriptorSetLayout(context.device, model_set_layout, nullptr);
 	vkDestroyDescriptorSetLayout(context.device, scene_set_layout, nullptr);
 
+	plane_mesh.destroy();
 	cube_mesh.destroy();
 }
 
@@ -206,6 +207,13 @@ bool Scene::createModels() {
 		.transform = { .position = glm::vec3(2.0f, 0.0f, 0.0f) },
 		.animation = Animation(true, 0.0f, 0.0f, glm::vec3(0.0f, 30.0f, 0.0f)),
 		.material = { .albedo = glm::vec3(1.0f, 0.55f, 0.15f) },
+	});
+
+	models.emplace_back(Model::Description{
+		.name = "Floor",
+		.mesh = &plane_mesh,
+		.transform = { .position = glm::vec3(0.0f, -1.0f, 0.0f), .scale = glm::vec3(12.0f, 1.0f, 12.0f) },
+		.material = { .albedo = glm::vec3(0.8f), .specular = glm::vec3(0.2f), .shininess = 16.0f },
 	});
 
 	if (models.size() > kMaxModels) {

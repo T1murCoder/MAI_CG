@@ -42,8 +42,9 @@ private:
 	Camera camera;
 	Lighting lighting;
 
-	// Геометрия куба, общая для всех моделей сцены
+	// Геометрия, общая для всех моделей сцены: куб и плоскость (пол)
 	Mesh cube_mesh;
+	Mesh plane_mesh;
 
 	// У каждой модели своя трансформация, анимация, материал, uniform-буфер и набор дескрипторов
 	std::vector<Model> models;

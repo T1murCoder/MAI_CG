@@ -11,47 +11,65 @@ glm::vec3 colorFromPosition(glm::vec3 position) {
 	return position + glm::vec3(0.5f);
 }
 
-// Грань куба: внешняя нормаль n и две оси в плоскости грани, причём cross(u, v) == n
-struct CubeFace {
+// Белый цвет вершины — поверхность окрашивается только альбедо материала
+glm::vec3 whiteColor(glm::vec3) {
+	return glm::vec3(1.0f);
+}
+
+// Ориентация квадрата: внешняя нормаль n и две оси в его плоскости, причём cross(u, v) == n
+struct QuadBasis {
 	glm::vec3 n;
 	glm::vec3 u;
 	glm::vec3 v;
 };
 
-constexpr CubeFace kCubeFaces[] = {
+constexpr QuadBasis kUpBasis = { { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f, 0.0f } };
+
+constexpr QuadBasis kCubeFaces[] = {
 	{ { 0.0f, 0.0f, -1.0f }, { 0.0f, 1.0f, 0.0f }, { 1.0f, 0.0f, 0.0f } }, // -Z
 	{ { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f } },  // +Z
 	{ { -1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 1.0f, 0.0f } }, // -X
 	{ { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f } },  // +X
 	{ { 0.0f, -1.0f, 0.0f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f } }, // -Y
-	{ { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f, 0.0f } },  // +Y
+	kUpBasis,                                                              // +Y
 };
+
+// Добавляет квадрат со стороной 1 с центром center: 4 вершины с общей нормалью и 2 треугольника.
+// Углы идут в порядке (-u-v), (+u-v), (+u+v), (-u+v): для треугольника (0, 1, 2)
+// cross(c1 - c0, c2 - c0) ~ cross(u, v) == n, то есть обход против часовой стрелки со стороны нормали
+void appendQuad(MeshData& data, glm::vec3 center, const QuadBasis& basis, glm::vec3 (*color)(glm::vec3)) {
+	const glm::vec2 corners[] = { { -1.0f, -1.0f }, { 1.0f, -1.0f }, { 1.0f, 1.0f }, { -1.0f, 1.0f } };
+	const uint16_t base = uint16_t(data.vertices.size());
+
+	for (const glm::vec2& corner : corners) {
+		const glm::vec3 position = center + 0.5f * (corner.x * basis.u + corner.y * basis.v);
+		data.vertices.push_back({ position, color(position), basis.n });
+	}
+
+	for (const uint16_t index : { 0, 1, 2, 0, 2, 3 }) {
+		data.indices.push_back(uint16_t(base + index));
+	}
+}
 
 } // namespace
 
-// Каждая грань строится из своих 4 вершин с общей нормалью грани. Углы идут в порядке
-// (-u-v), (+u-v), (+u+v), (-u+v): для треугольника (0, 1, 2) cross(c1 - c0, c2 - c0) ~ cross(u, v) == n,
-// то есть обход против часовой стрелки при взгляде снаружи. Цвет вершины выводится из её позиции
+// Каждая грань — отдельный квадрат, сдвинутый от центра на половину ребра вдоль своей нормали;
+// цвет вершины выводится из её позиции
 MeshData makeCube() {
 	MeshData data;
 	data.vertices.reserve(24);
 	data.indices.reserve(36);
 
-	const glm::vec2 corners[] = { { -1.0f, -1.0f }, { 1.0f, -1.0f }, { 1.0f, 1.0f }, { -1.0f, 1.0f } };
-
-	for (const CubeFace& face : kCubeFaces) {
-		const uint16_t base = uint16_t(data.vertices.size());
-
-		for (const glm::vec2& corner : corners) {
-			const glm::vec3 position = 0.5f * (face.n + corner.x * face.u + corner.y * face.v);
-			data.vertices.push_back({ position, colorFromPosition(position), face.n });
-		}
-
-		for (const uint16_t index : { 0, 1, 2, 0, 2, 3 }) {
-			data.indices.push_back(uint16_t(base + index));
-		}
+	for (const QuadBasis& face : kCubeFaces) {
+		appendQuad(data, 0.5f * face.n, face, colorFromPosition);
 	}
 
+	return data;
+}
+
+MeshData makePlane() {
+	MeshData data;
+	appendQuad(data, glm::vec3(0.0f), kUpBasis, whiteColor);
 	return data;
 }
 
