@@ -122,8 +122,8 @@ if(GLSLC_FOUND)
 	# compile_shader(example.vert)
 	# compile_shader(example.frag)
 
-	compile_shader(cube.vert)
-	compile_shader(cube.frag)
+	compile_shader(lit.vert)
+	compile_shader(lit.frag)
 	compile_shader(unlit.vert)
 	compile_shader(unlit.frag)
 

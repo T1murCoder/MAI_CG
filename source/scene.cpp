@@ -312,8 +312,8 @@ bool Scene::createPipeline() {
 	}
 
 	if (!pipeline::create({
-			.vertex_shader = "cube.vert.spv",
-			.fragment_shader = "cube.frag.spv",
+			.vertex_shader = "lit.vert.spv",
+			.fragment_shader = "lit.frag.spv",
 			.layout = pipeline_layout,
 		}, pipeline)) {
 		return false;
