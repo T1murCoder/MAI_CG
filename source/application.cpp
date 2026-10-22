@@ -6,11 +6,11 @@
 #include <vulkan/vulkan.h>
 
 #include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
 
 #include <imgui.h>
 
 #include "animation.hpp"
+#include "camera.hpp"
 #include "mesh.hpp"
 #include "pipeline.hpp"
 #include "transform.hpp"
@@ -33,8 +33,8 @@ vk_buffer::Buffer index_buffer;
 vk_buffer::Buffer uniform_buffer;
 vk_buffer::Buffer uniform_buffer_2;
 
-// Режим проекции первого куба: true — перспективная, false — ортографическая
-bool use_perspective_projection = true;
+// Камера, общая для обоих кубов: даёт матрицы вида и проекции
+Camera camera;
 
 double last_update_time = -1.0; // -1 означает "ещё не было предыдущего кадра"
 
@@ -248,15 +248,7 @@ void update(double time) {
 
 	ImGui::Begin("Cube Controls");
 
-	// Переключатель между перспективной и ортографической проекцией
-	ImGui::SeparatorText("Projection");
-	if (ImGui::RadioButton("Perspective", use_perspective_projection)) {
-		use_perspective_projection = true;
-	}
-	ImGui::SameLine();
-	if (ImGui::RadioButton("Orthographic", !use_perspective_projection)) {
-		use_perspective_projection = false;
-	}
+	camera.drawUi();
 
 	cube_transform.drawUi();
 	cube_animation.drawUi();
@@ -279,18 +271,8 @@ void render(const graphics::internal::FrameData& fd) {
 
 	UBO ubo{};
 	ubo.model = cube_animation.apply(cube_transform).matrix();
-	ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 3.0f), glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-
-	if (use_perspective_projection) {
-		ubo.proj = glm::perspective(glm::radians(45.0f), aspect, 0.1f, 100.0f);
-	} else {
-		// half_extent подобран так, чтобы куб был примерно того же размера, что и в перспективе
-		constexpr float half_extent = 1.7f;
-		ubo.proj = glm::ortho(-half_extent * aspect, half_extent * aspect, -half_extent, half_extent,
-							  0.1f, 100.0f);
-	}
-	// В Vulkan clip space ось Y направлена вниз, в отличие от OpenGL, под который заточен GLM
-	ubo.proj[1][1] *= -1.0f;
+	ubo.view = camera.view();
+	ubo.proj = camera.projection(aspect);
 
 	// Копируем MVP первого куба напрямую в замапленную память его uniform-буфера
 	std::memcpy(uniform_buffer.mapped, &ubo, sizeof(ubo));
