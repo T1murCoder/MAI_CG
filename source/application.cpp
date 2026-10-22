@@ -8,6 +8,8 @@ namespace application {
 
 namespace {
 
+// Глобальный объект: ресурсы освобождаются явным destroy() в shutdown(), а не деструктором,
+// иначе он вызвался бы уже после уничтожения устройства
 Scene scene;
 
 double last_update_time = -1.0; // -1 означает "ещё не было предыдущего кадра"
@@ -77,7 +79,7 @@ void render(const graphics::internal::FrameData& fd) {
 	const VkRect2D scissor = { .extent = context.swapchain_extent };
 	vkCmdSetScissor(fd.command_buffer, 0, 1, &scissor);
 
-	// Соотношение сторон окна нужно живым каждый кадр — окно может быть изменено в размере
+	// Соотношение сторон пересчитывается каждый кадр — окно может быть изменено в размере
 	const float aspect = float(context.swapchain_extent.width) / float(context.swapchain_extent.height);
 	scene.record(fd.command_buffer, aspect);
 

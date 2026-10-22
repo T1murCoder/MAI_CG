@@ -33,7 +33,6 @@ bool Model::create(VkDescriptorSetLayout model_set_layout, VkDescriptorPool pool
 		return false;
 	}
 
-	// Привязываем набор дескрипторов к uniform-буферу этой модели
 	const VkDescriptorBufferInfo buffer_info = {
 		.buffer = uniform_buffer.buffer,
 		.offset = 0,

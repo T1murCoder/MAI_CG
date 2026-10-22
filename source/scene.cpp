@@ -120,8 +120,9 @@ void Scene::drawUi() {
 	ImGui::End();
 }
 
-// Запись в буферы и пересоздание storage-буферов безопасны: prepare() уже дождался завершения
-// предыдущего кадра, а набор сцены в этом кадре ещё не привязан
+// Единственное место, где можно писать в GPU-буферы (memcpy, пересоздание storage-буферов,
+// vkUpdateDescriptorSets): prepare() уже дождался завершения предыдущего кадра, а набор сцены
+// в этом кадре ещё не привязан. В update() этого делать нельзя — он выполняется до ожидания fence
 void Scene::record(VkCommandBuffer command_buffer, float aspect) {
 	SceneUniforms scene_uniforms = {};
 	camera.fill(scene_uniforms, aspect);
@@ -195,7 +196,6 @@ bool Scene::createDescriptors() {
 		return false;
 	}
 
-	// Привязываем набор сцены к её uniform-буферу
 	const VkDescriptorBufferInfo buffer_info = {
 		.buffer = scene_uniform_buffer.buffer,
 		.offset = 0,
@@ -225,7 +225,7 @@ bool Scene::createModels() {
 		.mesh = &cube_mesh,
 	});
 
-	// Второй куб: стоит в точке (2, 0, 0) и постоянно вращается вокруг Y со скоростью 30°/с без орбиты
+	// Второй куб: только вращение вокруг Y, без орбиты
 	models.emplace_back(Model::Description{
 		.name = "Second Cube",
 		.mesh = &cube_mesh,

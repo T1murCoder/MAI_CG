@@ -75,7 +75,6 @@ bool create(const Config& config, VkPipeline& out) {
 		return false;
 	}
 
-	// Две стадии шейдеров: вершинная и фрагментная
 	const VkPipelineShaderStageCreateInfo stages[] = {
 		{
 			.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
@@ -116,7 +115,7 @@ bool create(const Config& config, VkPipeline& out) {
 		.scissorCount = 1,
 	};
 
-	// Передние грани — с обходом против часовой стрелки (проверено эмпирически)
+	// Передние грани — с обходом против часовой стрелки, так заданы индексы в geometry
 	const VkPipelineRasterizationStateCreateInfo rasterization = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
 		.polygonMode = VK_POLYGON_MODE_FILL,
@@ -151,7 +150,7 @@ bool create(const Config& config, VkPipeline& out) {
 		.pAttachments = &color_blend_attachment,
 	};
 
-	// Viewport и scissor можно будет менять каждый кадр без пересоздания pipeline (важно при ресайзе окна)
+	// Viewport и scissor задаются в command buffer каждый кадр, без пересоздания pipeline (важно при ресайзе окна)
 	const VkDynamicState dynamic_states[] = {
 		VK_DYNAMIC_STATE_VIEWPORT,
 		VK_DYNAMIC_STATE_SCISSOR,

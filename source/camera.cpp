@@ -8,6 +8,7 @@
 
 namespace {
 
+// Строго 90° нельзя: при взгляде вдоль up векторное произведение cross(front, up) вырождается в ноль
 constexpr float kMaxPitchDegrees = 89.0f;
 
 } // namespace
@@ -129,6 +130,7 @@ glm::vec3 Camera::forward() const {
 // Обратное к forward(): углы восстанавливаются из направления на target
 void Camera::lookAt(glm::vec3 target) {
 	const glm::vec3 direction = target - position;
+	// Цель совпадает с положением камеры — направление не определено, углы остаются прежними
 	if (glm::dot(direction, direction) == 0.0f) {
 		return;
 	}
