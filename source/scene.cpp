@@ -81,6 +81,8 @@ void Scene::destroy() {
 }
 
 void Scene::update(double dt) {
+	camera.update(dt);
+
 	for (Model& model : models) {
 		model.update(dt);
 	}
