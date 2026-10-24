@@ -10,6 +10,7 @@
 #include "lighting.hpp"
 #include "mesh.hpp"
 #include "model.hpp"
+#include "shadows.hpp"
 #include "vk_buffer.hpp"
 
 // Сцена: камера, источники света, меши, модели и общие для них Vulkan-ресурсы (дескрипторы, pipeline).
@@ -31,7 +32,11 @@ public:
 
 	// Обновляет uniform-буферы и записывает команды отрисовки всех моделей и визуализаций источников;
 	// вызывать внутри render pass после ожидания fence кадра
-	void record(VkCommandBuffer command_buffer, float aspect);
+	// void record(VkCommandBuffer command_buffer, float aspect);
+
+	void upload(float aspect);
+	void recordShadows(VkCommandBuffer command_buffer);
+	void record(VkCommandBuffer command_buffer);
 
 private:
 	// Сколько моделей можно создать — под это число рассчитан пул дескрипторов
@@ -44,6 +49,7 @@ private:
 	Camera camera;
 	Lighting lighting;
 	LightGizmos light_gizmos;
+	Shadows shadows;
 
 	// Геометрия, общая для всех моделей сцены: радужный куб из ЛР1, белый куб (цвет только
 	// от материала) и плоскость (пол и стены)

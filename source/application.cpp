@@ -48,6 +48,12 @@ void render(const graphics::internal::FrameData& fd) {
 	};
 	vkBeginCommandBuffer(fd.command_buffer, &begin_info);
 
+	const float aspect = float(context.swapchain_extent.width) / float(context.swapchain_extent.height);
+	scene.upload(aspect);
+
+	// Проход теней — отдельный render pass, поэтому записывается до основного
+	scene.recordShadows(fd.command_buffer);
+
 	// Цвет очистки фона и значение очистки буфера глубины (1.0 — максимально далеко)
 	const VkClearValue clear_values[] = {
 		{ .color = { { 0.02f, 0.02f, 0.03f, 1.0f } } },
@@ -80,8 +86,7 @@ void render(const graphics::internal::FrameData& fd) {
 	vkCmdSetScissor(fd.command_buffer, 0, 1, &scissor);
 
 	// Соотношение сторон пересчитывается каждый кадр — окно может быть изменено в размере
-	const float aspect = float(context.swapchain_extent.width) / float(context.swapchain_extent.height);
-	scene.record(fd.command_buffer, aspect);
+	scene.record(fd.command_buffer);
 
 	vkCmdEndRenderPass(fd.command_buffer);
 

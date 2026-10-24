@@ -18,13 +18,9 @@ constexpr uint32_t kConeSegments = 32;   // отрезков в окружнос
 const glm::vec3 kOuterConeColor = glm::vec3(1.0f);
 const glm::vec3 kInnerConeColor = glm::vec3(0.45f);
 
-// Поворот, переводящий ось +Z в direction (единичный вектор). Опорная ось «вверх» нужна, чтобы
-// достроить базис; если direction почти вертикален, вместо Y берётся X, иначе векторное произведение
-// выродится в ноль
+// Поворот, переводящий ось +Z в direction (единичный вектор); базис достраивается от опорной оси upReference
 glm::mat4 orientationAlong(glm::vec3 direction) {
-	const glm::vec3 reference = std::abs(direction.y) < 0.99f ? glm::vec3(0.0f, 1.0f, 0.0f)
-															  : glm::vec3(1.0f, 0.0f, 0.0f);
-	const glm::vec3 x = glm::normalize(glm::cross(reference, direction));
+	const glm::vec3 x = glm::normalize(glm::cross(upReference(direction), direction));
 	const glm::vec3 y = glm::cross(direction, x);
 	return glm::mat4(glm::vec4(x, 0.0f), glm::vec4(y, 0.0f), glm::vec4(direction, 0.0f),
 					 glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));

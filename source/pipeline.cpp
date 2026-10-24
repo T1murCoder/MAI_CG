@@ -67,9 +67,12 @@ bool createLayout(std::span<const VkDescriptorSetLayout> set_layouts,
 bool create(const Config& config, VkPipeline& out) {
 	auto& context = graphics::internal::context;
 
+	// Без фрагментного шейдера pipeline только пишет глубину — так рисуется карта теней
+	const bool has_fragment = config.fragment_shader != nullptr;
+
 	const VkShaderModule vertex_shader = loadShaderModule(config.vertex_shader);
-	const VkShaderModule fragment_shader = loadShaderModule(config.fragment_shader);
-	if (vertex_shader == VK_NULL_HANDLE || fragment_shader == VK_NULL_HANDLE) {
+	const VkShaderModule fragment_shader = has_fragment ? loadShaderModule(config.fragment_shader) : VK_NULL_HANDLE;
+	if (vertex_shader == VK_NULL_HANDLE || (has_fragment && fragment_shader == VK_NULL_HANDLE)) {
 		vkDestroyShaderModule(context.device, vertex_shader, nullptr);
 		vkDestroyShaderModule(context.device, fragment_shader, nullptr);
 		return false;
@@ -115,12 +118,14 @@ bool create(const Config& config, VkPipeline& out) {
 		.scissorCount = 1,
 	};
 
-	// Передние грани — с обходом против часовой стрелки, так заданы индексы в geometry
+	// Передние грани — с обходом против часовой стрелки, так заданы индексы в geometry.
+	// Depth bias сдвигает записываемую глубину (используется картой теней против «акне»)
 	const VkPipelineRasterizationStateCreateInfo rasterization = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
 		.polygonMode = VK_POLYGON_MODE_FILL,
 		.cullMode = config.cull_mode,
 		.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+		.depthBiasEnable = config.depth_bias ? VK_TRUE : VK_FALSE,
 		.lineWidth = 1.0f,
 	};
 
@@ -144,27 +149,30 @@ bool create(const Config& config, VkPipeline& out) {
 						   VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
 	};
 
+	// Число привязок должно совпадать с числом цветовых привязок render pass (у карты теней их нет)
 	const VkPipelineColorBlendStateCreateInfo color_blend = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-		.attachmentCount = 1,
+		.attachmentCount = config.color_attachment_count,
 		.pAttachments = &color_blend_attachment,
 	};
 
-	// Viewport и scissor задаются в command buffer каждый кадр, без пересоздания pipeline (важно при ресайзе окна)
+	// Viewport и scissor задаются в command buffer каждый кадр, без пересоздания pipeline (важно при ресайзе окна);
+	// depth bias — тоже, чтобы его можно было подбирать из UI. Он последний в списке и включается только по конфигу
 	const VkDynamicState dynamic_states[] = {
 		VK_DYNAMIC_STATE_VIEWPORT,
 		VK_DYNAMIC_STATE_SCISSOR,
+		VK_DYNAMIC_STATE_DEPTH_BIAS,
 	};
 
 	const VkPipelineDynamicStateCreateInfo dynamic_state = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
-		.dynamicStateCount = sizeof(dynamic_states) / sizeof(dynamic_states[0]),
+		.dynamicStateCount = uint32_t(sizeof(dynamic_states) / sizeof(dynamic_states[0])) - (config.depth_bias ? 0u : 1u),
 		.pDynamicStates = dynamic_states,
 	};
 
 	const VkGraphicsPipelineCreateInfo pipeline_info = {
 		.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
-		.stageCount = sizeof(stages) / sizeof(stages[0]),
+		.stageCount = has_fragment ? 2u : 1u,
 		.pStages = stages,
 		.pVertexInputState = &vertex_input,
 		.pInputAssemblyState = &input_assembly,
@@ -175,7 +183,7 @@ bool create(const Config& config, VkPipeline& out) {
 		.pColorBlendState = &color_blend,
 		.pDynamicState = &dynamic_state,
 		.layout = config.layout,
-		.renderPass = context.render_pass,
+		.renderPass = config.render_pass != VK_NULL_HANDLE ? config.render_pass : context.render_pass,
 		.subpass = 0,
 	};
 

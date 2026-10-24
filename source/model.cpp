@@ -12,7 +12,7 @@ using shader::ModelUniforms;
 
 Model::Model(const Description& description)
 	: name(description.name), mesh(description.mesh), transform(description.transform),
-	  animation(description.animation), material(description.material) {}
+	  animation(description.animation), material(description.material), cast_shadows(description.cast_shadows) {}
 
 bool Model::create(VkDescriptorSetLayout model_set_layout, VkDescriptorPool pool) {
 	auto& context = graphics::internal::context;
@@ -92,6 +92,11 @@ void Model::drawUi() {
 		transform.drawUi();
 		animation.drawUi();
 		material.drawUi();
+		ImGui::Checkbox("Cast Shadows", &cast_shadows);
 	}
 	ImGui::PopID();
+}
+
+bool Model::castsShadows() const {
+	return cast_shadows;
 }

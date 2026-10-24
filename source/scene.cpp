@@ -34,6 +34,16 @@ constexpr VkDescriptorSetLayoutBinding storageBinding(uint32_t binding) {
 	};
 }
 
+// Карта теней с сэмплером — тоже читается только во фрагментном шейдере
+constexpr VkDescriptorSetLayoutBinding samplerBinding(uint32_t binding) {
+	return {
+		.binding = binding,
+		.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		.descriptorCount = 1,
+		.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+	};
+}
+
 // Создаёт layout набора дескрипторов из списка привязок
 bool createSetLayout(std::span<const VkDescriptorSetLayoutBinding> bindings, VkDescriptorSetLayout& out) {
 	const VkDescriptorSetLayoutCreateInfo layout_info = {
@@ -56,6 +66,11 @@ bool createSetLayout(std::span<const VkDescriptorSetLayoutBinding> bindings, VkD
 bool Scene::create() {
 	if (!cube_mesh.create(geometry::makeCube()) || !white_cube_mesh.create(geometry::makeCube(false)) ||
 		!plane_mesh.create(geometry::makePlane())) {
+		return false;
+	}
+
+	// Карта теней создаётся до дескрипторов: набор сцены ссылается на неё
+	if (!shadows.create()) {
 		return false;
 	}
 
@@ -92,6 +107,8 @@ void Scene::destroy() {
 	vkDestroyDescriptorSetLayout(context.device, model_set_layout, nullptr);
 	vkDestroyDescriptorSetLayout(context.device, scene_set_layout, nullptr);
 
+	shadows.destroy();
+
 	plane_mesh.destroy();
 	white_cube_mesh.destroy();
 	cube_mesh.destroy();
@@ -111,6 +128,7 @@ void Scene::drawUi() {
 
 	camera.drawUi();
 	lighting.drawUi();
+	shadows.drawUi();
 	light_gizmos.drawUi();
 
 	for (Model& model : models) {
@@ -123,16 +141,26 @@ void Scene::drawUi() {
 // Единственное место, где можно писать в GPU-буферы (memcpy, пересоздание storage-буферов,
 // vkUpdateDescriptorSets): prepare() уже дождался завершения предыдущего кадра, а набор сцены
 // в этом кадре ещё не привязан. В update() этого делать нельзя — он выполняется до ожидания fence
-void Scene::record(VkCommandBuffer command_buffer, float aspect) {
+void Scene::upload(float aspect) {
 	SceneUniforms scene_uniforms = {};
 	camera.fill(scene_uniforms, aspect);
 	lighting.upload(scene_uniforms);
+	shadows.upload(scene_uniforms);
 	std::memcpy(scene_uniform_buffer.mapped, &scene_uniforms, sizeof(scene_uniforms));
 
+	// Матрицы моделей нужны уже проходу теней, поэтому загружаются здесь, а не в record
 	for (Model& model : models) {
 		model.uploadUniforms();
 	}
+}
 
+// Гизмо источников в карту теней не попадают — рисуются только модели
+void Scene::recordShadows(VkCommandBuffer command_buffer) {
+	shadows.record(command_buffer, lighting.directionalShadowViewProjection(), lighting.spotShadowViewProjections(),
+				   lighting.pointShadowPositions(), models);
+}
+
+void Scene::record(VkCommandBuffer command_buffer) {
 	vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 
 	// Набор сцены (set 0) привязывается один раз за кадр; модели меняют только set 1
@@ -152,19 +180,23 @@ void Scene::record(VkCommandBuffer command_buffer, float aspect) {
 bool Scene::createDescriptors() {
 	auto& context = graphics::internal::context;
 
-	// Набор сцены: uniform-буфер (binding 0), массивы точечных источников (binding 1) и прожекторов (binding 2);
-	// набор модели: uniform-буфер
-	const VkDescriptorSetLayoutBinding scene_bindings[] = { kUniformBinding, storageBinding(1), storageBinding(2) };
+	// Набор сцены: uniform-буфер (binding 0), массивы точечных источников (binding 1) и прожекторов (binding 2),
+	// карта теней направленного света (binding 3), массив карт прожекторов (binding 4) и массив кубических карт
+	// точечных источников (binding 5); набор модели: uniform-буфер
+	const VkDescriptorSetLayoutBinding scene_bindings[] = { kUniformBinding, storageBinding(1), storageBinding(2),
+															samplerBinding(3), samplerBinding(4), samplerBinding(5) };
 	if (!createSetLayout(scene_bindings, scene_set_layout) ||
 		!createSetLayout({ &kUniformBinding, 1 }, model_set_layout)) {
 		return false;
 	}
 
 	// Один набор сцены плюс по одному набору на модель, в каждом по одному uniform-буферу.
-	// Storage-буферы — массивы источников света в наборе сцены (точечные и прожекторы)
+	// Storage-буферы — массивы источников света в наборе сцены (точечные и прожекторы),
+	// сэмплеры — карты теней (направленного света, прожекторов и точечных источников)
 	const VkDescriptorPoolSize pool_sizes[] = {
 		{ .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1 + kMaxModels },
 		{ .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 2 },
+		{ .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 3 },
 	};
 
 	const VkDescriptorPoolCreateInfo pool_info = {
@@ -212,6 +244,9 @@ bool Scene::createDescriptors() {
 	};
 
 	vkUpdateDescriptorSets(context.device, 1, &write, 0, nullptr);
+
+	// Карты теней сами привязываются к своим binding набора сцены
+	shadows.bind(scene_descriptor_set);
 
 	// Storage-буферы источников света сами привязываются к своим binding набора сцены
 	return lighting.create(scene_descriptor_set);
@@ -302,7 +337,7 @@ bool Scene::createModels() {
 }
 
 // Создаёт общий pipeline layout (set 0 — сцена, set 1 — модель, push constant визуализаций),
-// pipeline моделей и пайплайны визуализации источников. Шейдеры моделей push constant не используют,
+// pipeline моделей, прохода теней и визуализации источников. Шейдеры моделей push constant не используют,
 // а неосвещаемые шейдеры — набор модели; layout это допускает
 bool Scene::createPipeline() {
 	const VkDescriptorSetLayout set_layouts[] = { scene_set_layout, model_set_layout };
@@ -316,6 +351,10 @@ bool Scene::createPipeline() {
 			.fragment_shader = "lit.frag.spv",
 			.layout = pipeline_layout,
 		}, pipeline)) {
+		return false;
+	}
+
+	if (!shadows.createPipeline(pipeline_layout)) {
 		return false;
 	}
 

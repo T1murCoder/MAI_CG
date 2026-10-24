@@ -23,6 +23,7 @@ public:
 		Transform transform;
 		Animation animation;
 		Material material;
+		bool cast_shadows = true;
 	};
 
 	explicit Model(const Description& description);
@@ -42,8 +43,11 @@ public:
 	// Привязывает набор дескрипторов модели (set 1) и её меш и рисует её
 	void draw(VkCommandBuffer command_buffer, VkPipelineLayout pipeline_layout) const;
 
-	// Сворачиваемая секция с трансформацией, анимацией и материалом модели в текущем окне ImGui
+	// Сворачиваемая секция с трансформацией, анимацией, материалом и флагом теней модели в текущем окне ImGui
 	void drawUi();
+
+	// Попадает ли модель в карты теней (отбрасывает ли тени); тени на неё падают в любом случае
+	bool castsShadows() const;
 
 private:
 	std::string name;
@@ -51,6 +55,7 @@ private:
 	Transform transform;
 	Animation animation;
 	Material material;
+	bool cast_shadows;
 
 	vk_buffer::Buffer uniform_buffer;
 	VkDescriptorSet descriptor_set = VK_NULL_HANDLE;

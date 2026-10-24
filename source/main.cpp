@@ -73,6 +73,14 @@ int main() {
 	}
 
 	while (!glfwWindowShouldClose(glfw_window)) {
+		// Свёрнутое окно: framebuffer 0×0, рисовать некуда — спим до следующего события окна
+		int framebuffer_width = 0, framebuffer_height = 0;
+		glfwGetFramebufferSize(glfw_window, &framebuffer_width, &framebuffer_height);
+		if (framebuffer_width == 0 || framebuffer_height == 0) {
+			glfwWaitEvents();
+			continue;
+		}
+
 		const double time = glfwGetTime();
 
 		glfwPollEvents();
@@ -83,6 +91,9 @@ int main() {
 		ImGui::Render();
 
 		graphics::internal::FrameData fd = graphics::internal::prepare();
+		if (fd.command_buffer == VK_NULL_HANDLE) {
+			continue;
+		}
 		application::render(fd);
 		graphics::internal::submitAndPresent();
 	}

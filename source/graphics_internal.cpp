@@ -231,6 +231,14 @@ void drawImGUI() {
 bool rebuildSwapchain(uint32_t width, uint32_t height) {
 	vkQueueWaitIdle(context.graphics_queue);
 
+	// Свёрнутое окно: поверхность 0×0, swapchain нулевого размера создать нельзя. Оставляем старый,
+	// пересоздадим, когда окно развернут
+	VkSurfaceCapabilitiesKHR capabilities;
+	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(context.physical_device, vk_surface, &capabilities);
+	if (capabilities.currentExtent.width == 0 || capabilities.currentExtent.height == 0) {
+		return false;
+	}
+
 	vkb::SwapchainBuilder sb(context.physical_device, context.device, vk_surface,
 	                         context.graphics_queue_index, context.graphics_queue_index);
 
@@ -242,6 +250,7 @@ bool rebuildSwapchain(uint32_t width, uint32_t height) {
 					   .build();
 	if (!sb_result) {
 		std::cerr << sb_result.error().message() << '\n';
+		return false;
 	}
 
 	auto vkb_swapchain = sb_result.value();
@@ -257,6 +266,11 @@ bool rebuildSwapchain(uint32_t width, uint32_t height) {
 	vk_swapchain = vkb_swapchain.swapchain;
 	context.swapchain_format = vkb_swapchain.image_format;
 	context.swapchain_extent = vkb_swapchain.extent;
+
+	// Запрошенный размер — только пожелание: драйвер подгоняет его под поверхность. Буфер глубины
+	// и framebuffer'ы должны совпадать с реальным размером картинок swapchain
+	width = context.swapchain_extent.width;
+	height = context.swapchain_extent.height;
 
 	auto swapchain_images = vkb_swapchain.get_images().value();
 	auto swapchain_image_views = vkb_swapchain.get_image_views().value();
@@ -396,8 +410,15 @@ bool initialize(GLFWwindow* const window) {
 
 	vkb::PhysicalDeviceSelector pds(vkb_instance, vk_surface);
 
+	// Массив кубических карт (тени точечных источников) требует фичу imageCubeArray; vk-bootstrap
+	// отбирает только устройства с ней и сам включает её при создании логического устройства
+	const VkPhysicalDeviceFeatures required_features = {
+		.imageCubeArray = VK_TRUE,
+	};
+
 	auto pds_result = pds.prefer_gpu_device_type(vkb::PreferredDeviceType::discrete)
 						 .require_present()
+						 .set_required_features(required_features)
 						 .select();
 	if (!pds_result) {
 		std::cerr << pds_result.error().message() << '\n';
@@ -714,8 +735,11 @@ retry_acquire:
 	case VK_SUCCESS:
 		break;
 
+	// Если swapchain сейчас не пересоздать (окно свернули), кадр пропускается
 	case VK_ERROR_OUT_OF_DATE_KHR:
-		rebuildSwapchain(vk_swapchain_resize_width, vk_swapchain_resize_height);
+		if (!rebuildSwapchain(vk_swapchain_resize_width, vk_swapchain_resize_height)) {
+			return {};
+		}
 		goto retry_acquire;
 
 	case VK_SUBOPTIMAL_KHR:

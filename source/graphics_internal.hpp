@@ -37,6 +37,8 @@ void shutdown();
 
 void resize(uint32_t width, uint32_t height);
 
+// Ждёт предыдущий кадр и получает картинку swapchain. Пустой FrameData (command_buffer == VK_NULL_HANDLE) —
+// кадр рисовать нельзя (например, окно свёрнуто): render и submitAndPresent для него не вызываются
 FrameData prepare();
 void submitAndPresent();
 
