@@ -27,7 +27,7 @@ public:
 	// Обрабатывает ввод для камеры и продвигает анимации источников света и моделей на dt секунд
 	void update(double dt);
 
-	// Окно ImGui с настройками камеры, освещения, визуализации источников и всех моделей
+	// Окно ImGui с настройками MSAA, камеры, освещения, теней, визуализации источников и всех моделей
 	void drawUi();
 
 	// Обновляет uniform-буферы и записывает команды отрисовки всех моделей и визуализаций источников;
@@ -45,6 +45,15 @@ private:
 	bool createDescriptors();
 	bool createModels();
 	bool createPipeline();
+
+	// Pipeline моделей (шейдеры lit.*) под основной render pass
+	bool createModelPipeline();
+
+	// Переключает MSAA основного render pass и пересоздаёт пайплайны под него (моделей и визуализаций)
+	bool setSampleCount(VkSampleCountFlagBits samples);
+
+	// Секция «Rendering» в окне сцены: выбор числа выборок MSAA
+	void drawRenderingUi();
 
 	Camera camera;
 	Lighting lighting;

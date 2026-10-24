@@ -44,10 +44,15 @@ bool LightGizmos::create(VkPipelineLayout layout, const Mesh* marker_mesh) {
 	pipeline_layout = layout;
 	marker = marker_mesh;
 
-	if (!cone_mesh.create(geometry::makeConeLines(kConeSegments))) {
-		return false;
-	}
+	return cone_mesh.create(geometry::makeConeLines(kConeSegments)) && createPipelines();
+}
 
+void LightGizmos::destroy() {
+	destroyPipelines();
+	cone_mesh.destroy();
+}
+
+bool LightGizmos::createPipelines() {
 	if (!pipeline::create({
 			.vertex_shader = "unlit.vert.spv",
 			.fragment_shader = "unlit.frag.spv",
@@ -66,12 +71,13 @@ bool LightGizmos::create(VkPipelineLayout layout, const Mesh* marker_mesh) {
 	}, line_pipeline);
 }
 
-void LightGizmos::destroy() {
+void LightGizmos::destroyPipelines() {
 	auto& context = graphics::internal::context;
 
 	vkDestroyPipeline(context.device, line_pipeline, nullptr);
 	vkDestroyPipeline(context.device, marker_pipeline, nullptr);
-	cone_mesh.destroy();
+	line_pipeline = VK_NULL_HANDLE;
+	marker_pipeline = VK_NULL_HANDLE;
 }
 
 void LightGizmos::record(VkCommandBuffer command_buffer, const Lighting& lighting) const {

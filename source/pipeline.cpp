@@ -129,10 +129,12 @@ bool create(const Config& config, VkPipeline& out) {
 		.lineWidth = 1.0f,
 	};
 
-	// Мультисемплинг отключён — один сэмпл на пиксель
+	// Число выборок должно совпадать с привязками render pass: у основного — текущее число выборок MSAA
+	// (при его смене pipeline пересоздаётся), у своих render pass'ов (карты теней) — одна выборка на пиксель
+	const bool main_render_pass = config.render_pass == VK_NULL_HANDLE;
 	const VkPipelineMultisampleStateCreateInfo multisample = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-		.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
+		.rasterizationSamples = main_render_pass ? context.sample_count : VK_SAMPLE_COUNT_1_BIT,
 	};
 
 	// Тест глубины включён всегда; запись глубины можно отключить конфигом
@@ -183,7 +185,7 @@ bool create(const Config& config, VkPipeline& out) {
 		.pColorBlendState = &color_blend,
 		.pDynamicState = &dynamic_state,
 		.layout = config.layout,
-		.renderPass = config.render_pass != VK_NULL_HANDLE ? config.render_pass : context.render_pass,
+		.renderPass = main_render_pass ? context.render_pass : config.render_pass,
 		.subpass = 0,
 	};
 

@@ -39,6 +39,13 @@ uint32_t vk_swapchain_resize_width;
 uint32_t vk_swapchain_resize_height;
 bool vk_swapchain_resize_require;
 
+// Мультисемпловые цветовой буфер и буфер глубины основного render pass. Нужны только внутри прохода:
+// цвет резолвится в картинку swapchain, поэтому их содержимое не сохраняется (transient).
+// Без MSAA (1 выборка) цветового буфера нет — рисуем прямо в картинку swapchain
+VkImage vk_image_msaa_color;
+VmaAllocation vma_allocation_msaa_color;
+VkImageView vk_image_view_msaa_color;
+
 VkImage vk_image_depth_buffer;
 VmaAllocation vma_allocation_depth_buffer;
 VkImageView vk_image_view_depth_buffer;
@@ -228,6 +235,222 @@ void drawImGUI() {
 	vkEndCommandBuffer(vk_imgui_command_buffer);
 }
 
+// Основной render pass под context.sample_count выборок.
+// С MSAA: рисуем в мультисемпловые цвет (0) и глубину (1), в конце subpass цвет резолвится — выборки
+// каждого пикселя усредняются — в картинку swapchain (2). Мультисемпловые буферы после прохода
+// не нужны (DONT_CARE). Без MSAA резолвить нечего (одну выборку в одну Vulkan не резолвит):
+// цвет (0) — сразу картинка swapchain, глубина (1). В обоих случаях картинка swapchain остаётся
+// в COLOR_ATTACHMENT_OPTIMAL для прохода ImGui
+bool createRenderPass() {
+	const bool msaa = context.sample_count != VK_SAMPLE_COUNT_1_BIT;
+
+	const VkAttachmentDescription render_pass_attachments[] = {
+		{
+			.format = context.swapchain_format,
+			.samples = context.sample_count,
+			.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+			.storeOp = msaa ? VK_ATTACHMENT_STORE_OP_DONT_CARE : VK_ATTACHMENT_STORE_OP_STORE,
+			.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+			.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+			.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+			.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		},
+		{
+			.format = VK_FORMAT_D24_UNORM_S8_UINT,
+			.samples = context.sample_count,
+			.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+			.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+			.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+			.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+			.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+			.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+		},
+		{
+			.format = context.swapchain_format,
+			.samples = VK_SAMPLE_COUNT_1_BIT,
+			.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+			.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+			.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+			.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+			.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+			.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		},
+	};
+
+	const VkAttachmentReference render_pass_color_attachment = {
+		.attachment = 0,
+		.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+	};
+
+	const VkAttachmentReference render_pass_depth_attachment = {
+		.attachment = 1,
+		.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+	};
+
+	const VkAttachmentReference render_pass_resolve_attachment = {
+		.attachment = 2,
+		.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+	};
+
+	const VkSubpassDescription render_pass_subpass = {
+		.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
+		.colorAttachmentCount = 1,
+		.pColorAttachments = &render_pass_color_attachment,
+		.pResolveAttachments = msaa ? &render_pass_resolve_attachment : nullptr,
+		.pDepthStencilAttachment = &render_pass_depth_attachment,
+	};
+
+	// Цвет и глубина общие для всех кадров: запись в них (и переход layout картинки swapchain из UNDEFINED)
+	// должна дождаться, пока предыдущий кадр закончит с ними работать, а картинка swapchain — освободится
+	// (семафор acquire ждёт на стадии COLOR_ATTACHMENT_OUTPUT)
+	const VkSubpassDependency render_pass_dependency = {
+		.srcSubpass = VK_SUBPASS_EXTERNAL,
+		.dstSubpass = 0,
+		.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+						VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+		.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+						VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+		.srcAccessMask = 0,
+		.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+						 VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+	};
+
+	const VkRenderPassCreateInfo render_pass = {
+		.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+		.attachmentCount = msaa ? 3u : 2u,
+		.pAttachments = render_pass_attachments,
+		.subpassCount = 1,
+		.pSubpasses = &render_pass_subpass,
+		.dependencyCount = 1,
+		.pDependencies = &render_pass_dependency,
+	};
+
+	if (vkCreateRenderPass(context.device, &render_pass, nullptr, &context.render_pass) != VK_SUCCESS) {
+		std::cerr << "Failed to create Vulkan render pass\n";
+		return false;
+	}
+
+	return true;
+}
+
+// Создаёт картинку размера extent с context.sample_count выборками и view на аспект aspect
+bool createMultisampledImage(VkExtent2D extent, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect,
+							 VkImage& out_image, VmaAllocation& out_allocation, VkImageView& out_view) {
+	const VkImageCreateInfo image = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+		.imageType = VK_IMAGE_TYPE_2D,
+		.format = format,
+		.extent = { extent.width, extent.height, 1 },
+		.mipLevels = 1,
+		.arrayLayers = 1,
+		.samples = context.sample_count,
+		.tiling = VK_IMAGE_TILING_OPTIMAL,
+		.usage = usage,
+		.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+		.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+	};
+
+	const VmaAllocationCreateInfo allocation = {
+		.usage = VMA_MEMORY_USAGE_AUTO,
+	};
+
+	if (vmaCreateImage(context.allocator, &image, &allocation, &out_image, &out_allocation, nullptr) != VK_SUCCESS) {
+		std::cerr << "Failed to allocate and create Vulkan multisampled image\n";
+		return false;
+	}
+
+	const VkImageViewCreateInfo view = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+		.image = out_image,
+		.viewType = VK_IMAGE_VIEW_TYPE_2D,
+		.format = format,
+		.subresourceRange = {
+			.aspectMask = aspect,
+			.baseMipLevel = 0,
+			.levelCount = 1,
+			.baseArrayLayer = 0,
+			.layerCount = 1,
+		},
+	};
+
+	if (vkCreateImageView(context.device, &view, nullptr, &out_view) != VK_SUCCESS) {
+		std::cerr << "Failed to create Vulkan image view for multisampled image\n";
+		return false;
+	}
+
+	return true;
+}
+
+// Буфер глубины и (с MSAA) мультисемпловый цветовой буфер под размер swapchain; пересоздаются вместе с ним
+bool createRenderTargets() {
+	constexpr VkImageUsageFlags kTransient = VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT;
+
+	if (context.sample_count != VK_SAMPLE_COUNT_1_BIT &&
+		!createMultisampledImage(context.swapchain_extent, context.swapchain_format,
+								 VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | kTransient, VK_IMAGE_ASPECT_COLOR_BIT,
+								 vk_image_msaa_color, vma_allocation_msaa_color, vk_image_view_msaa_color)) {
+		return false;
+	}
+
+	return createMultisampledImage(context.swapchain_extent, VK_FORMAT_D24_UNORM_S8_UINT,
+								   VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | kTransient, VK_IMAGE_ASPECT_DEPTH_BIT,
+								   vk_image_depth_buffer, vma_allocation_depth_buffer, vk_image_view_depth_buffer);
+}
+
+// Хэндлы обнуляются: после переключения на 1 выборку цветового буфера нет, и повторное
+// уничтожение не должно задеть уже уничтоженный объект
+void destroyRenderTargets() {
+	vkDestroyImageView(context.device, vk_image_view_depth_buffer, nullptr);
+	vmaDestroyImage(context.allocator, vk_image_depth_buffer, vma_allocation_depth_buffer);
+	vkDestroyImageView(context.device, vk_image_view_msaa_color, nullptr);
+	vmaDestroyImage(context.allocator, vk_image_msaa_color, vma_allocation_msaa_color);
+
+	vk_image_view_depth_buffer = VK_NULL_HANDLE;
+	vk_image_depth_buffer = VK_NULL_HANDLE;
+	vma_allocation_depth_buffer = VK_NULL_HANDLE;
+	vk_image_view_msaa_color = VK_NULL_HANDLE;
+	vk_image_msaa_color = VK_NULL_HANDLE;
+	vma_allocation_msaa_color = VK_NULL_HANDLE;
+}
+
+// Framebuffer'ы основного render pass, по одному на картинку swapchain. Глубина (и мультисемпловый цвет)
+// общие, а своя картинка swapchain — резолвная привязка с MSAA или цветовая без него
+bool createFramebuffers() {
+	const uint32_t swapchain_images_count = uint32_t(vk_swapchain_images.size());
+	const bool msaa = context.sample_count != VK_SAMPLE_COUNT_1_BIT;
+	const uint32_t swapchain_attachment = msaa ? 2 : 0;
+
+	VkImageView framebuffer_attachments[] = {
+		vk_image_view_msaa_color,
+		vk_image_view_depth_buffer,
+		VK_NULL_HANDLE,
+	};
+
+	const VkFramebufferCreateInfo framebuffer = {
+		.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+		.renderPass = context.render_pass,
+		.attachmentCount = msaa ? 3u : 2u,
+		.pAttachments = framebuffer_attachments,
+		.width = context.swapchain_extent.width,
+		.height = context.swapchain_extent.height,
+		.layers = 1,
+	};
+
+	vk_framebuffers.resize(swapchain_images_count);
+
+	for (uint32_t i = 0; i < swapchain_images_count; ++i) {
+		framebuffer_attachments[swapchain_attachment] = vk_swapchain_image_views[i];
+
+		if (vkCreateFramebuffer(context.device, &framebuffer, nullptr,
+								&vk_framebuffers[i]) != VK_SUCCESS) {
+			std::cerr << "Failed to create Vulkan framebuffer #" << i << '\n';
+			return false;
+		}
+	}
+
+	return true;
+}
+
 bool rebuildSwapchain(uint32_t width, uint32_t height) {
 	vkQueueWaitIdle(context.graphics_queue);
 
@@ -278,82 +501,12 @@ bool rebuildSwapchain(uint32_t width, uint32_t height) {
 	vk_swapchain_images = std::move(swapchain_images);
 	vk_swapchain_image_views = std::move(swapchain_image_views);
 
-	vkDestroyImageView(context.device, vk_image_view_depth_buffer, nullptr);
-	vmaDestroyImage(context.allocator, vk_image_depth_buffer, vma_allocation_depth_buffer);
-
-	const VkImageCreateInfo depth_buffer = {
-		.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-		.imageType = VK_IMAGE_TYPE_2D,
-		.format = VK_FORMAT_D24_UNORM_S8_UINT,
-		.extent = { uint32_t(width), uint32_t(height), 1 },
-		.mipLevels = 1,
-		.arrayLayers = 1,
-		.samples = VK_SAMPLE_COUNT_1_BIT,
-		.tiling = VK_IMAGE_TILING_OPTIMAL,
-		.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-		.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-		.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-	};
-
-	const VmaAllocationCreateInfo depth_buffer_allocation = {
-		.usage = VMA_MEMORY_USAGE_AUTO,
-	};
-
-	if (vmaCreateImage(context.allocator, &depth_buffer, &depth_buffer_allocation,
-					   &vk_image_depth_buffer, &vma_allocation_depth_buffer,
-					   nullptr) != VK_SUCCESS) {
-		std::cerr << "Failed to allocate and create Vulkan image for depth buffer\n";
-		return false;
-	}
-
-	const VkImageViewCreateInfo depth_buffer_view = {
-		.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-		.image = vk_image_depth_buffer,
-		.viewType = VK_IMAGE_VIEW_TYPE_2D,
-		.format = VK_FORMAT_D24_UNORM_S8_UINT,
-		.subresourceRange = {
-			.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT,
-			.baseMipLevel = 0,
-			.levelCount = 1,
-			.baseArrayLayer = 0,
-			.layerCount = 1,
-		},
-	};
-
-	if (vkCreateImageView(context.device, &depth_buffer_view, nullptr,
-						  &vk_image_view_depth_buffer) != VK_SUCCESS) {
-		std::cerr << "Failed to create Vulkan image view for depth buffer\n";
+	destroyRenderTargets();
+	if (!createRenderTargets() || !createFramebuffers()) {
 		return false;
 	}
 
 	const uint32_t swapchain_images_count = uint32_t(vk_swapchain_images.size());
-
-	VkImageView framebuffer_attachments[] = {
-		VK_NULL_HANDLE,
-		vk_image_view_depth_buffer,
-	};
-
-	const VkFramebufferCreateInfo framebuffer = {
-		.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-		.renderPass = context.render_pass,
-		.attachmentCount = sizeof(framebuffer_attachments) / sizeof(framebuffer_attachments[0]),
-		.pAttachments = framebuffer_attachments,
-		.width = uint32_t(width),
-		.height = uint32_t(height),
-		.layers = 1,
-	};
-
-	vk_framebuffers.resize(swapchain_images_count);
-
-	for (uint32_t i = 0; i < swapchain_images_count; ++i) {
-		framebuffer_attachments[0] = vk_swapchain_image_views[i];
-
-		if (vkCreateFramebuffer(context.device, &framebuffer, nullptr,
-								&vk_framebuffers[i]) != VK_SUCCESS) {
-			std::cerr << "Failed to create Vulkan framebuffer #" << i << '\n';
-			return false;
-		}
-	}
 
 	vk_imgui_framebuffers.resize(swapchain_images_count);
 
@@ -386,9 +539,6 @@ bool rebuildSwapchain(uint32_t width, uint32_t height) {
 Context context;
 
 bool initialize(GLFWwindow* const window) {
-	int width = 0, height = 0;
-	glfwGetWindowSize(window, &width, &height);
-
 	vkb::InstanceBuilder ib;
 
 	auto ibr = ib.require_api_version(VK_MAKE_VERSION(1, 1, 0))
@@ -488,129 +638,9 @@ bool initialize(GLFWwindow* const window) {
 
 	const uint32_t swapchain_images_count = uint32_t(vk_swapchain_images.size());
 
-	const VkImageCreateInfo depth_buffer = {
-		.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-		.imageType = VK_IMAGE_TYPE_2D,
-		.format = VK_FORMAT_D24_UNORM_S8_UINT,
-		.extent = { uint32_t(width), uint32_t(height), 1 },
-		.mipLevels = 1,
-		.arrayLayers = 1,
-		.samples = VK_SAMPLE_COUNT_1_BIT,
-		.tiling = VK_IMAGE_TILING_OPTIMAL,
-		.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-		.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-		.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-	};
-
-	const VmaAllocationCreateInfo depth_buffer_allocation = {
-		.usage = VMA_MEMORY_USAGE_AUTO,
-	};
-
-	if (vmaCreateImage(context.allocator, &depth_buffer, &depth_buffer_allocation,
-					   &vk_image_depth_buffer, &vma_allocation_depth_buffer,
-					   nullptr) != VK_SUCCESS) {
-		std::cerr << "Failed to allocate and create Vulkan image for depth buffer\n";
+	context.sample_count = kDefaultSampleCount;
+	if (!createRenderPass() || !createRenderTargets() || !createFramebuffers()) {
 		return false;
-	}
-
-	const VkImageViewCreateInfo depth_buffer_view = {
-		.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-		.image = vk_image_depth_buffer,
-		.viewType = VK_IMAGE_VIEW_TYPE_2D,
-		.format = VK_FORMAT_D24_UNORM_S8_UINT,
-		.subresourceRange = {
-			.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT,
-			.baseMipLevel = 0,
-			.levelCount = 1,
-			.baseArrayLayer = 0,
-			.layerCount = 1,
-		},
-	};
-
-	if (vkCreateImageView(context.device, &depth_buffer_view, nullptr,
-						  &vk_image_view_depth_buffer) != VK_SUCCESS) {
-		std::cerr << "Failed to create Vulkan image view for depth buffer\n";
-		return false;
-	}
-
-	const VkAttachmentDescription render_pass_attachments[] = {
-		{
-			.format = context.swapchain_format,
-			.samples = VK_SAMPLE_COUNT_1_BIT,
-			.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-			.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-			.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-			.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-			.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-			.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-		},
-		{
-			.format = VK_FORMAT_D24_UNORM_S8_UINT,
-			.samples = VK_SAMPLE_COUNT_1_BIT,
-			.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-			.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-			.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-			.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-			.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-			.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-		},
-	};
-
-	const VkAttachmentReference render_pass_color_attachment = {
-		.attachment = 0,
-		.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-	};
-
-	const VkAttachmentReference render_pass_depth_attachment = {
-		.attachment = 1,
-		.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-	};
-
-	const VkSubpassDescription render_pass_subpass = {
-		.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
-		.colorAttachmentCount = 1,
-		.pColorAttachments = &render_pass_color_attachment,
-		.pDepthStencilAttachment = &render_pass_depth_attachment,
-	};
-
-	const VkRenderPassCreateInfo render_pass = {
-		.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
-		.attachmentCount = sizeof(render_pass_attachments) / sizeof(render_pass_attachments[0]),
-		.pAttachments = render_pass_attachments,
-		.subpassCount = 1,
-		.pSubpasses = &render_pass_subpass,
-	};
-
-	if (vkCreateRenderPass(context.device, &render_pass, nullptr, &context.render_pass) != VK_SUCCESS) {
-		std::cerr << "Failed to create Vulkan render pass\n";
-		return false;
-	}
-
-	VkImageView framebuffer_attachments[] = {
-		VK_NULL_HANDLE,
-		vk_image_view_depth_buffer
-	};
-
-	const VkFramebufferCreateInfo framebuffer = {
-		.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-		.renderPass = context.render_pass,
-		.attachmentCount = sizeof(framebuffer_attachments) / sizeof(framebuffer_attachments[0]),
-		.pAttachments = framebuffer_attachments,
-		.width = uint32_t(width),
-		.height = uint32_t(height),
-		.layers = 1,
-	};
-
-	vk_framebuffers.resize(swapchain_images_count);
-
-	for (uint32_t i = 0; i < swapchain_images_count; ++i) {
-		framebuffer_attachments[0] = vk_swapchain_image_views[i];
-
-		if (vkCreateFramebuffer(context.device, &framebuffer, nullptr,
-								&vk_framebuffers[i]) != VK_SUCCESS) {
-			std::cerr << "Failed to create Vulkan framebuffer #" << i << '\n';
-			return false;
-		}
 	}
 
 	const VkSemaphoreCreateInfo semaphore = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
@@ -697,8 +727,7 @@ void shutdown() {
 	}
 	vkDestroyRenderPass(context.device, context.render_pass, nullptr);
 
-	vkDestroyImageView(context.device, vk_image_view_depth_buffer, nullptr);
-	vmaDestroyImage(context.allocator, vk_image_depth_buffer, vma_allocation_depth_buffer);
+	destroyRenderTargets();
 
 	for (size_t i = 0, n = vk_swapchain_images.size(); i < n; ++i) {
 		vkDestroyImageView(context.device, vk_swapchain_image_views[i], nullptr);
@@ -723,6 +752,25 @@ void resize(uint32_t width, uint32_t height) {
 	vk_swapchain_resize_height = height;
 
 	vk_swapchain_resize_require = true;
+}
+
+VkSampleCountFlags supportedSampleCounts() {
+	VkPhysicalDeviceProperties properties;
+	vkGetPhysicalDeviceProperties(context.physical_device, &properties);
+	return properties.limits.framebufferColorSampleCounts & properties.limits.framebufferDepthSampleCounts;
+}
+
+bool setSampleCount(VkSampleCountFlagBits samples) {
+	vkQueueWaitIdle(context.graphics_queue);
+
+	for (VkFramebuffer framebuffer : vk_framebuffers) {
+		vkDestroyFramebuffer(context.device, framebuffer, nullptr);
+	}
+	destroyRenderTargets();
+	vkDestroyRenderPass(context.device, context.render_pass, nullptr);
+
+	context.sample_count = samples;
+	return createRenderPass() && createRenderTargets() && createFramebuffers();
 }
 
 FrameData prepare() {

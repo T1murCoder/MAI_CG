@@ -14,7 +14,8 @@ struct Config {
 	VkPipelineLayout layout;
 	VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 	VkCullModeFlags cull_mode = VK_CULL_MODE_BACK_BIT;
-	VkRenderPass render_pass = VK_NULL_HANDLE; // VK_NULL_HANDLE — основной render pass заготовки
+	VkRenderPass render_pass = VK_NULL_HANDLE; // VK_NULL_HANDLE — основной render pass (с текущим MSAA),
+											   // иначе свой с 1 выборкой
 	bool depth_write = true;
 	uint32_t color_attachment_count = 1; // 1 или 0 (render pass без цветовой привязки)
 	bool depth_bias = false;             // значения задаются в command buffer через vkCmdSetDepthBias

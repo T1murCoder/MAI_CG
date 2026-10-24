@@ -23,6 +23,10 @@ public:
 	bool create(VkPipelineLayout layout, const Mesh* marker_mesh);
 	void destroy();
 
+	// Пайплайны фигур под основной render pass; пересоздаются при смене числа выборок MSAA
+	bool createPipelines();
+	void destroyPipelines();
+
 	// Рисует фигуры всех источников, если визуализация включена. Набор сцены (set 0) с матрицей
 	// вида-проекции уже должен быть привязан с тем же pipeline layout
 	void record(VkCommandBuffer command_buffer, const Lighting& lighting) const;

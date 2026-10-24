@@ -126,6 +126,7 @@ void Scene::update(double dt) {
 void Scene::drawUi() {
 	ImGui::Begin("Scene");
 
+	drawRenderingUi();
 	camera.drawUi();
 	lighting.drawUi();
 	shadows.drawUi();
@@ -346,11 +347,7 @@ bool Scene::createPipeline() {
 		return false;
 	}
 
-	if (!pipeline::create({
-			.vertex_shader = "lit.vert.spv",
-			.fragment_shader = "lit.frag.spv",
-			.layout = pipeline_layout,
-		}, pipeline)) {
+	if (!createModelPipeline()) {
 		return false;
 	}
 
@@ -360,4 +357,63 @@ bool Scene::createPipeline() {
 
 	// Маркер источника — маленький куб из общего меша куба
 	return light_gizmos.create(pipeline_layout, &cube_mesh);
+}
+
+bool Scene::createModelPipeline() {
+	return pipeline::create({
+		.vertex_shader = "lit.vert.spv",
+		.fragment_shader = "lit.frag.spv",
+		.layout = pipeline_layout,
+	}, pipeline);
+}
+
+// Пайплайны карт теней не трогаются — у них свой render pass с одной выборкой
+bool Scene::setSampleCount(VkSampleCountFlagBits samples) {
+	if (!graphics::internal::setSampleCount(samples)) {
+		return false;
+	}
+
+	vkDestroyPipeline(graphics::internal::context.device, pipeline, nullptr);
+	light_gizmos.destroyPipelines();
+
+	return createModelPipeline() && light_gizmos.createPipelines();
+}
+
+// Предлагаются только поддерживаемые устройством числа выборок. Смена применяется сразу: drawUi
+// вызывается до prepare(), вне кадра, как того требует graphics::internal::setSampleCount
+void Scene::drawRenderingUi() {
+	struct SampleCountOption {
+		VkSampleCountFlagBits samples;
+		const char* label;
+	};
+	constexpr SampleCountOption kOptions[] = {
+		{ VK_SAMPLE_COUNT_1_BIT, "Off" },
+		{ VK_SAMPLE_COUNT_2_BIT, "2x" },
+		{ VK_SAMPLE_COUNT_4_BIT, "4x" },
+		{ VK_SAMPLE_COUNT_8_BIT, "8x" },
+	};
+
+	const VkSampleCountFlagBits current = graphics::internal::context.sample_count;
+	const char* current_label = "?";
+	for (const SampleCountOption& option : kOptions) {
+		if (option.samples == current) {
+			current_label = option.label;
+		}
+	}
+
+	ImGui::SeparatorText("Rendering");
+	if (ImGui::BeginCombo("MSAA", current_label)) {
+		const VkSampleCountFlags supported = graphics::internal::supportedSampleCounts();
+		for (const SampleCountOption& option : kOptions) {
+			if ((supported & option.samples) == 0) {
+				continue;
+			}
+			if (ImGui::Selectable(option.label, option.samples == current) && option.samples != current) {
+				if (!setSampleCount(option.samples)) {
+					std::cerr << "Failed to switch MSAA to " << option.label << '\n';
+				}
+			}
+		}
+		ImGui::EndCombo();
+	}
 }
