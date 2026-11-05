@@ -6,7 +6,8 @@ using shader::ModelUniforms;
 
 Model::Model(const Description& description)
 	: name(description.name), mesh(description.mesh), transform(description.transform),
-	  animation(description.animation), material(description.material), material_id(description.material_id) {}
+	  animation(description.animation), material(description.material), material_id(description.material_id),
+	  supports_albedo_effect(description.supports_albedo_effect) {}
 
 void Model::update(double dt) {
 	animation.update(dt);
@@ -42,6 +43,9 @@ void Model::drawUi(const MaterialCatalog& materials) {
 		animation.drawUi();
 		ImGui::SeparatorText("Material");
 		materials.drawSelectionUi(material_id);
+		if (supports_albedo_effect) {
+			ImGui::Checkbox("Animate albedo", &albedo_effect_enabled);
+		}
 		material.drawUi();
 	}
 	ImGui::PopID();

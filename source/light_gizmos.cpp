@@ -113,6 +113,7 @@ void LightGizmos::drawMesh(VkCommandBuffer command_buffer, const Mesh& mesh, con
 		.model = model,
 		.color = glm::vec4(color, 1.0f),
 	};
+	// Полностью заменяем данные эффекта albedo матрицей и цветом текущей фигуры.
 	vkCmdPushConstants(command_buffer, pipeline_layout, kPushConstantRange.stageFlags, 0, sizeof(push_constants),
 					   &push_constants);
 	mesh.draw(command_buffer);

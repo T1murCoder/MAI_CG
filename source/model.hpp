@@ -24,6 +24,7 @@ public:
 		Animation animation;
 		MaterialParameters material;
 		MaterialId material_id = MaterialId::UvGrid;
+		bool supports_albedo_effect = false; // в начальной сцене разрешён только у выделенного куба
 	};
 
 	explicit Model(const Description& description);
@@ -40,6 +41,7 @@ public:
 	// Сворачиваемая секция с трансформацией, анимацией и материалом модели в текущем окне ImGui
 	void drawUi(const MaterialCatalog& materials);
 	MaterialId materialId() const { return material_id; }
+	bool albedoEffectEnabled() const { return supports_albedo_effect && albedo_effect_enabled; }
 
 private:
 	std::string name;
@@ -48,4 +50,6 @@ private:
 	Animation animation;
 	MaterialParameters material;
 	MaterialId material_id;
+	bool supports_albedo_effect;
+	bool albedo_effect_enabled = true;
 };

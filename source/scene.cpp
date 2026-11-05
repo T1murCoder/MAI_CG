@@ -1,5 +1,6 @@
 #include "scene.hpp"
 
+#include <cmath>
 #include <cstring>
 #include <iostream>
 #include <limits>
@@ -107,6 +108,9 @@ void Scene::destroy() {
 void Scene::update(double dt) {
 	camera.update(dt);
 	lighting.update(dt);
+	// Все движения UV и цветовые колебания в lit.frag периодичны за 120 секунд.
+	// Ограничиваем часы, чтобы float в push constants не терял точность при долгой работе.
+	albedo_effect_time = std::fmod(albedo_effect_time + dt, 120.0);
 
 	for (Model& model : models) {
 		model.update(dt);
@@ -162,6 +166,13 @@ void Scene::record(VkCommandBuffer command_buffer, float aspect) {
 		const VkDescriptorSet material_set = materials.descriptor(models[i].materialId());
 		vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 1, 1,
 								&material_set, 1, &dynamic_offset);
+		const shader::AlbedoEffectPushConstants effect = {
+			.animation = glm::vec4(float(albedo_effect_time), models[i].albedoEffectEnabled() ? 1.0f : 0.0f, 0.0f, 0.0f),
+		};
+		// Пишем также 0 перед каждой обычной моделью: состояние не переносится с выделенного куба.
+		// Диапазон общий с gizmos, поэтому обновляем обе его стадии, даже если эффект читает только fragment.
+		vkCmdPushConstants(command_buffer, pipeline_layout, LightGizmos::kPushConstantRange.stageFlags,
+						   0, sizeof(effect), &effect);
 		models[i].draw(command_buffer);
 	}
 
@@ -273,6 +284,7 @@ bool Scene::createModels() {
 	models.emplace_back(Model::Description{
 		.name = "Cube",
 		.mesh = &cube_mesh,
+		.supports_albedo_effect = true,
 	});
 
 	// Второй куб: только вращение вокруг Y, без орбиты
@@ -353,9 +365,9 @@ bool Scene::createModels() {
 	return true;
 }
 
-// Создаёт общий pipeline layout (set 0 — сцена, set 1 — материал, push constant визуализаций),
-// pipeline моделей и пайплайны визуализации источников. Шейдеры моделей push constant не используют,
-// а неосвещаемые шейдеры — набор модели; layout это допускает
+// Общий layout: set 0 — сцена, set 1 — материал; push constants [0, 80) — gizmos,
+// а lit.frag использует только [0, 16) для эффекта albedo. Перед draw данные перезаписываются.
+// Неосвещаемые шейдеры не используют набор материала; layout это допускает.
 bool Scene::createPipeline() {
 	const VkDescriptorSetLayout set_layouts[] = { scene_set_layout, materials.layout() };
 

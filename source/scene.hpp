@@ -54,6 +54,7 @@ private:
 
 	// У каждой модели своя трансформация, анимация и материал; GPU-записи хранятся вместе
 	std::vector<Model> models;
+	double albedo_effect_time = 0.0; // CPU-часы эффекта; время и включение идут только через push constants
 
 	// Layout и пул набора сцены (set 0); set 1 принадлежит каталогу материалов
 	VkDescriptorSetLayout scene_set_layout = VK_NULL_HANDLE;
@@ -68,7 +69,7 @@ private:
 	vk_buffer::Buffer model_uniform_buffer;
 	VkDeviceSize model_uniform_stride = 0;
 
-	// Один pipeline layout на все пайплайны сцены: set 0, set 1 и push constant визуализаций источников.
+	// Один pipeline layout: set 0, set 1 и общий push constant диапазон для gizmos и эффекта albedo.
 	// Общий layout совместим сам с собой, поэтому набор сцены остаётся привязанным при смене пайплайна.
 	// Pipeline моделей (lit.*) общий — различаются набор материала и dynamic offset модели
 	VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;

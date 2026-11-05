@@ -13,6 +13,27 @@ layout(set = 1, binding = 1) uniform sampler2D albedoTexture;
 layout(set = 1, binding = 2) uniform sampler2D specularTexture;
 layout(set = 1, binding = 3) uniform sampler2D emissiveTexture;
 
+// Контракт с shader::AlbedoEffectPushConstants: первые 16 байт общего диапазона gizmos.
+layout(push_constant) uniform AlbedoEffectPushConstants {
+	vec4 animation; // x — время [0, 120), y — включение эффекта
+} effect;
+
+vec3 sampleAlbedo(vec2 uv) {
+	if (effect.animation.y < 0.5) {
+		return texture(albedoTexture, uv).rgb;
+	}
+
+	const float time = effect.animation.x;
+	const float phase = time * (6.28318530718 / 120.0);
+	// Две выборки одного изображения: разные масштабы и направления движения.
+	// За 120 секунд смещения проходят целое число повторов, поэтому сброс часов незаметен.
+	const vec3 first = texture(albedoTexture, uv + time * vec2(0.05, 0.025)).rgb;
+	const vec3 second = texture(albedoTexture, uv * 1.5 + time * vec2(-0.025, 0.05)).rgb;
+	const float blend = 0.5 + 0.2 * sin(3.0 * phase); // обе выборки всегда участвуют: 30…70 %
+	const vec3 modulation = 0.75 + 0.25 * sin(vec3(4.0 * phase) + vec3(0.0, 2.0943951, 4.1887902));
+	return mix(first, second, blend) * modulation;
+}
+
 // Освещённость пикселя: рассеянный свет + направленный, точечные источники и прожекторы по Блинн-Фонгу
 void main() {
 	// После интерполяции нормаль перестаёт быть единичной — нормализуем заново
@@ -23,7 +44,7 @@ void main() {
 	// Общие UV для albedo/specular/emissive. Повторение выполняет repeat-сэмплер:
 	// сохраняем непрерывные координаты и производные для линейной фильтрации.
 	const vec2 materialUv = fragUv * object.uv_repeat.xy;
-	const vec3 albedo = object.albedo.rgb * texture(albedoTexture, materialUv).rgb;
+	const vec3 albedo = object.albedo.rgb * sampleAlbedo(materialUv);
 	// Specular — линейные данные (UNORM), с теми же UV, что и albedo.
 	// Чёрный fallback или нулевой множитель модели полностью убирают блики.
 	const vec3 specular = object.specular.rgb * texture(specularTexture, materialUv).rgb;
