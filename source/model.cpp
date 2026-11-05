@@ -21,6 +21,7 @@ ModelUniforms Model::uniforms() const {
 		.normal_matrix = glm::transpose(glm::inverse(model)),
 		.albedo = glm::vec4(material.albedo, 1.0f),
 		.specular = glm::vec4(material.specular, material.shininess),
+		.uv_repeat = glm::vec4(material.uv_repeat, 0.0f, 0.0f),
 	};
 }
 

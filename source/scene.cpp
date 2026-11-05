@@ -288,17 +288,18 @@ bool Scene::createModels() {
 		.name = "Floor",
 		.mesh = &plane_mesh,
 		.transform = { .position = glm::vec3(0.0f, -1.0f, 0.0f), .scale = glm::vec3(12.0f, 1.0f, 12.0f) },
-		.material = { .specular = glm::vec3(0.2f), .shininess = 16.0f },
+		.material = { .specular = glm::vec3(0.2f), .shininess = 16.0f, .uv_repeat = glm::vec2(6.0f) },
 		.material_id = MaterialId::Tiles,
 	});
 
-	const MaterialParameters wall_material = { .specular = glm::vec3(0.1f), .shininess = 8.0f };
+	// У плоскости U идёт вдоль локальной Z, V — против X. Число повторов учитывает
+	// длины этих осей после scale: один квадрат текстуры занимает 2×2 единицы мира.
 	models.emplace_back(Model::Description{
 		.name = "Back Wall",
 		.mesh = &plane_mesh,
 		.transform = { .position = glm::vec3(0.0f, 2.0f, -6.0f), .rotation_degrees = glm::vec3(90.0f, 0.0f, 0.0f),
 					   .scale = glm::vec3(12.0f, 1.0f, 6.0f) },
-		.material = wall_material,
+		.material = { .specular = glm::vec3(0.1f), .shininess = 8.0f, .uv_repeat = glm::vec2(3.0f, 6.0f) },
 		.material_id = MaterialId::Brick,
 	});
 	models.emplace_back(Model::Description{
@@ -306,7 +307,7 @@ bool Scene::createModels() {
 		.mesh = &plane_mesh,
 		.transform = { .position = glm::vec3(-6.0f, 2.0f, 0.0f), .rotation_degrees = glm::vec3(0.0f, 0.0f, -90.0f),
 					   .scale = glm::vec3(6.0f, 1.0f, 12.0f) },
-		.material = wall_material,
+		.material = { .specular = glm::vec3(0.1f), .shininess = 8.0f, .uv_repeat = glm::vec2(6.0f, 3.0f) },
 		.material_id = MaterialId::Brick,
 	});
 
@@ -339,7 +340,7 @@ bool Scene::createModels() {
 		.mesh = &plane_mesh,
 		.transform = { .position = glm::vec3(4.0f, 1.0f, -3.5f), .rotation_degrees = glm::vec3(90.0f, 0.0f, 0.0f),
 					   .scale = glm::vec3(4.0f, 1.0f, 4.0f) },
-		.material = wall_material,
+		.material = { .specular = glm::vec3(0.1f), .shininess = 8.0f, .uv_repeat = glm::vec2(2.0f) },
 		.material_id = MaterialId::Brick,
 	});
 

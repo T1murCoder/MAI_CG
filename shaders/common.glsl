@@ -21,8 +21,9 @@ layout(set = 0, binding = 0) uniform SceneUniforms {
 layout(set = 1, binding = 0) uniform ModelUniforms {
 	mat4 model;
 	mat4 normal_matrix; // transpose(inverse(model))
-	vec4 albedo;        // rgb — диффузный цвет
+	vec4 albedo;        // rgb — линейный множитель albedo-текстуры
 	vec4 specular;      // rgb — цвет блика, w — коэффициент блеска
+	vec4 uv_repeat;     // xy — повторение по U/V для всех карт материала
 } object;
 
 // Для sRGB swapchain цвет остаётся линейным: кодирование выполняет attachment.

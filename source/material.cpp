@@ -29,7 +29,11 @@ static_assert(kDefinitions.size() == static_cast<size_t>(MaterialId::Count));
 
 // Блеск меняется на порядки (1…512), поэтому у слайдера логарифмическая шкала
 void MaterialParameters::drawUi() {
-	ImGui::ColorEdit3("Albedo", &albedo.x);
+	ImGui::ColorEdit3("Albedo tint", &albedo.x);
+	// Положительный минимум исключает вырождение UV и случайное отражение рисунка;
+	// AlwaysClamp ограничивает также значения, введённые вручную через Ctrl+Click.
+	ImGui::DragFloat("Repeat U", &uv_repeat.x, 0.05f, 0.1f, 32.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+	ImGui::DragFloat("Repeat V", &uv_repeat.y, 0.05f, 0.1f, 32.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
 	ImGui::ColorEdit3("Specular", &specular.x);
 	ImGui::SliderFloat("Shininess", &shininess, 1.0f, 512.0f, "%.1f", ImGuiSliderFlags_Logarithmic);
 }

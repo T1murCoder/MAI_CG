@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstddef>
+
 #include <glm/glm.hpp>
 
 // Структуры, которые копируются в буферы GPU. Это контракт с шейдерами: раскладка каждой структуры
@@ -27,10 +29,12 @@ static_assert(sizeof(SceneUniforms) == 160);
 struct ModelUniforms {
 	glm::mat4 model;
 	glm::mat4 normal_matrix; // transpose(inverse(model)) — переводит нормали в мир с учётом масштаба
-	glm::vec4 albedo;        // rgb — диффузный цвет материала, w не используется
+	glm::vec4 albedo;        // rgb — линейный множитель albedo-текстуры, w не используется
 	glm::vec4 specular;      // rgb — цвет блика, w — коэффициент блеска (shininess)
+	glm::vec4 uv_repeat;     // xy — повторение по U/V для всех карт материала, zw не используются
 };
-static_assert(sizeof(ModelUniforms) == 160);
+static_assert(sizeof(ModelUniforms) == 176);
+static_assert(offsetof(ModelUniforms, uv_repeat) == 160);
 
 // Элемент массива точечных источников (set 0, binding 1, storage-буфер)
 struct PointLight {

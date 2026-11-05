@@ -14,8 +14,9 @@ struct MaterialParameters {
 	glm::vec3 albedo = glm::vec3(1.0f);   // линейный множитель albedo-текстуры (белый сохраняет PNG)
 	glm::vec3 specular = glm::vec3(0.5f); // цвет блика Ks
 	float shininess = 32.0f;              // коэффициент блеска α: чем больше, тем меньше и резче блик
+	glm::vec2 uv_repeat = glm::vec2(1.0f); // независимые повторы U/V для всех карт выбранного материала
 
-	// Цвета альбедо и блика, коэффициент блеска в текущем окне ImGui
+	// Тонирование albedo, повторы U/V и параметры блика в текущем окне ImGui
 	void drawUi();
 };
 

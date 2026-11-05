@@ -21,8 +21,9 @@ void main() {
 	const vec3 V = normalize(scene.camera_position.xyz - fragWorldPosition);
 
 	// sRGB-текстура декодируется аппаратно; освещение и tint применяются в линейном пространстве.
-	// Общие базовые UV для всех карт материала; фаза 4 добавит повторение.
-	const vec2 materialUv = fragUv;
+	// Общие UV для albedo/specular/emissive. Повторение выполняет repeat-сэмплер:
+	// сохраняем непрерывные координаты и производные для линейной фильтрации.
+	const vec2 materialUv = fragUv * object.uv_repeat.xy;
 	const vec3 albedo = object.albedo.rgb * texture(albedoTexture, materialUv).rgb;
 	const vec3 specular = object.specular.rgb;
 	const float shininess = object.specular.w;
