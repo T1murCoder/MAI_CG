@@ -11,7 +11,6 @@ layout(location = 0) out vec4 outColor;
 
 layout(set = 1, binding = 1) uniform sampler2D albedoTexture;
 layout(set = 1, binding = 2) uniform sampler2D specularTexture;
-// Подготовлен каталогом; свечение подключается в фазе 6.
 layout(set = 1, binding = 3) uniform sampler2D emissiveTexture;
 
 // Освещённость пикселя: рассеянный свет + направленный, точечные источники и прожекторы по Блинн-Фонгу
@@ -58,6 +57,10 @@ void main() {
 		const vec3 radiance = light.color.rgb * light.color.w * falloff * spot;
 		color += blinnPhong(N, L, V, radiance, albedo, specular, shininess);
 	}
+
+	// Emissive декодируется из sRGB и прибавляется в линейном пространстве после
+	// освещения. Не зависит от внешнего света и albedo tint; UV общие со всеми картами.
+	color += texture(emissiveTexture, materialUv).rgb * object.emissive.x;
 
 	// Тон-маппинг: экспозиция и оператор Рейнхарда x / (1 + x) плавно сжимают освещённость [0, ∞)
 	// в [0, 1) вместо обрезки по 1 — яркий цветной свет не «выгорает» в белый. Гамма-коррекцию

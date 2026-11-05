@@ -7,7 +7,7 @@
 #include "texture.hpp"
 
 // Стабильные индексы готовых материалов; параметры конкретной модели хранятся отдельно.
-enum class MaterialId { UvGrid, Brick, Tiles, MaskedMetal, Count };
+enum class MaterialId { UvGrid, Brick, Tiles, MaskedMetal, EmissivePanel, Count };
 
 // Параметры материала по модели Блинн-Фонга
 struct MaterialParameters {
@@ -16,8 +16,10 @@ struct MaterialParameters {
 	float shininess = 32.0f;              // коэффициент блеска α: чем больше, тем меньше и резче блик
 	glm::vec2 uv_repeat = glm::vec2(1.0f); // независимые повторы U/V для всех карт выбранного материала
 	bool specular_enabled = true;        // выключение обнуляет вклад блика, сохраняя параметры
+	float emissive_intensity = 2.0f;     // линейный множитель яркости emissive-карты
+	bool emissive_enabled = true;        // выключение обнуляет свечение, сохраняя яркость
 
-	// Тонирование albedo, повторы U/V и параметры блика в текущем окне ImGui
+	// Тонирование albedo, повторы U/V, параметры блика и свечения в текущем окне ImGui
 	void drawUi();
 };
 

@@ -32,9 +32,11 @@ struct ModelUniforms {
 	glm::vec4 albedo;        // rgb — линейный множитель albedo-текстуры, w не используется
 	glm::vec4 specular;      // rgb — множитель specular-карты (0 при выключении), w — shininess
 	glm::vec4 uv_repeat;     // xy — повторение по U/V для всех карт материала, zw не используются
+	glm::vec4 emissive;      // x — яркость emissive-карты (0 при выключении), yzw не используются
 };
-static_assert(sizeof(ModelUniforms) == 176);
+static_assert(sizeof(ModelUniforms) == 192);
 static_assert(offsetof(ModelUniforms, uv_repeat) == 160);
+static_assert(offsetof(ModelUniforms, emissive) == 176);
 
 // Элемент массива точечных источников (set 0, binding 1, storage-буфер)
 struct PointLight {

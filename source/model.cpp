@@ -23,6 +23,7 @@ ModelUniforms Model::uniforms() const {
 		// Переключатель не меняет сохранённый цвет/силу блика и общий набор материала.
 		.specular = glm::vec4(material.specular_enabled ? material.specular : glm::vec3(0.0f), material.shininess),
 		.uv_repeat = glm::vec4(material.uv_repeat, 0.0f, 0.0f),
+		.emissive = glm::vec4(material.emissive_enabled ? material.emissive_intensity : 0.0f, 0.0f, 0.0f, 0.0f),
 	};
 }
 

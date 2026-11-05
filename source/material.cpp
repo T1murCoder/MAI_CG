@@ -16,13 +16,14 @@ struct MaterialDefinition {
 	const char* emissive = nullptr;
 };
 
-// Порядок соответствует MaterialId. Specular-карты загружаются как линейные данные;
-// для отсутствующих карт используется чёрный fallback. Emissive подключается в фазе 6.
+// Порядок соответствует MaterialId. Albedo/emissive загружаются как sRGB, specular —
+// как линейные данные; для отсутствующих дополнительных карт используется чёрный fallback.
 constexpr std::array kDefinitions = {
 	MaterialDefinition{ "UV Grid", TEXTURE_DIR "uv_grid.png" },
 	MaterialDefinition{ "Brick", TEXTURE_DIR "brick.png" },
 	MaterialDefinition{ "Tiles", TEXTURE_DIR "tiles.png" },
 	MaterialDefinition{ "Masked Metal", TEXTURE_DIR "metal_albedo.png", TEXTURE_DIR "metal_specular.png" },
+	MaterialDefinition{ "Emissive Panel", TEXTURE_DIR "panel_albedo.png", nullptr, TEXTURE_DIR "panel_emissive.png" },
 };
 static_assert(kDefinitions.size() == static_cast<size_t>(MaterialId::Count));
 
@@ -39,6 +40,10 @@ void MaterialParameters::drawUi() {
 	ImGui::BeginDisabled(!specular_enabled);
 	ImGui::ColorEdit3("Specular", &specular.x);
 	ImGui::SliderFloat("Shininess", &shininess, 1.0f, 512.0f, "%.1f", ImGuiSliderFlags_Logarithmic);
+	ImGui::EndDisabled();
+	ImGui::Checkbox("Enable emissive", &emissive_enabled);
+	ImGui::BeginDisabled(!emissive_enabled);
+	ImGui::DragFloat("Emissive brightness", &emissive_intensity, 0.05f, 0.0f, 20.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
 	ImGui::EndDisabled();
 }
 

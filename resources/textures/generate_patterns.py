@@ -71,9 +71,38 @@ def metal_specular(x, y):
     return (value, value, value)
 
 
+def panel_emissive(x, y):
+    """Shared light geometry: frame, three strips and status indicators."""
+    cyan, amber = (32, 216, 255), (255, 132, 24)
+    if 52 <= x < 460 and 52 <= y < 460:
+        if min(x - 52, 459 - x, y - 52, 459 - y) < 12:
+            return cyan
+    if 104 <= x < 408 and 144 <= y < 336 and (y - 144) % 64 < 24:
+        return amber if (y - 144) // 64 == 1 else cyan
+    for index, center in enumerate((112, 160, 208)):
+        if (x - center) ** 2 + (y - 400) ** 2 < 9 ** 2:
+            return amber if index == 2 else (64, 255, 128)
+    return (0, 0, 0)
+
+
+def panel_albedo(x, y):
+    emission = panel_emissive(x, y)
+    if any(emission):
+        return tuple(int(c * 0.55) for c in emission)
+    if min(x, y, 511 - x, 511 - y) < 24:
+        return (16, 21, 27)
+    # Screws belong to the housing and must stay dark without external light.
+    for cx, cy in ((36, 36), (475, 36), (36, 475), (475, 475)):
+        if (x - cx) ** 2 + (y - cy) ** 2 < 6 ** 2:
+            return (94, 104, 112)
+    return (36, 45, 54)
+
+
 if __name__ == "__main__":
     write_png("brick.png", 512, brick)
     write_png("tiles.png", 512, tiles)
     write_png("black.png", 1, lambda x, y: (0, 0, 0))
     write_png("metal_albedo.png", 512, metal_albedo)
     write_png("metal_specular.png", 512, metal_specular)
+    write_png("panel_albedo.png", 512, panel_albedo)
+    write_png("panel_emissive.png", 512, panel_emissive)

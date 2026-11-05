@@ -342,7 +342,7 @@ bool Scene::createModels() {
 		.transform = { .position = glm::vec3(4.0f, 1.0f, -3.5f), .rotation_degrees = glm::vec3(90.0f, 0.0f, 0.0f),
 					   .scale = glm::vec3(4.0f, 1.0f, 4.0f) },
 		.material = { .specular = glm::vec3(0.1f), .shininess = 8.0f, .uv_repeat = glm::vec2(2.0f) },
-		.material_id = MaterialId::Brick,
+		.material_id = MaterialId::EmissivePanel,
 	});
 
 	if (models.size() > kMaxModels) {

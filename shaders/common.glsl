@@ -24,6 +24,7 @@ layout(set = 1, binding = 0) uniform ModelUniforms {
 	vec4 albedo;        // rgb — линейный множитель albedo-текстуры
 	vec4 specular;      // rgb — множитель specular-карты (0 при выключении), w — shininess
 	vec4 uv_repeat;     // xy — повторение по U/V для всех карт материала
+	vec4 emissive;      // x — яркость emissive-карты (0 при выключении)
 } object;
 
 // Для sRGB swapchain цвет остаётся линейным: кодирование выполняет attachment.
