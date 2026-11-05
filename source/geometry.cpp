@@ -44,7 +44,9 @@ void appendQuad(MeshData& data, glm::vec3 center, const QuadBasis& basis, glm::v
 
 	for (const glm::vec2& corner : corners) {
 		const glm::vec3 position = center + 0.5f * (corner.x * basis.u + corner.y * basis.v);
-		data.vertices.push_back({ position, color(position), basis.n });
+		// U растёт вдоль basis.u, V — против basis.v: PNG читается сверху вниз.
+		const glm::vec2 uv(0.5f * (corner.x + 1.0f), 0.5f * (1.0f - corner.y));
+		data.vertices.push_back({ position, color(position), basis.n, uv });
 	}
 
 	for (const uint16_t index : { 0, 1, 2, 0, 2, 3 }) {
@@ -80,13 +82,13 @@ MeshData makeConeLines(uint32_t segments) {
 	const glm::vec3 white(1.0f);
 	const glm::vec3 axis(0.0f, 0.0f, 1.0f);
 
-	data.vertices.push_back({ glm::vec3(0.0f), white, axis });
-	data.vertices.push_back({ axis, white, axis });
+	data.vertices.push_back({ glm::vec3(0.0f), white, axis, glm::vec2(0.0f) });
+	data.vertices.push_back({ axis, white, axis, glm::vec2(0.0f) });
 
 	const uint16_t first = 2;
 	for (uint32_t i = 0; i < segments; ++i) {
 		const float angle = 2.0f * float(M_PI) * float(i) / float(segments);
-		data.vertices.push_back({ glm::vec3(std::cos(angle), std::sin(angle), 1.0f), white, axis });
+		data.vertices.push_back({ glm::vec3(std::cos(angle), std::sin(angle), 1.0f), white, axis, glm::vec2(0.0f) });
 	}
 
 	// Ось конуса показывает направление прожектора
@@ -117,7 +119,7 @@ VkVertexInputBindingDescription vertexBinding() {
 	};
 }
 
-std::array<VkVertexInputAttributeDescription, 3> vertexAttributes() {
+std::array<VkVertexInputAttributeDescription, 4> vertexAttributes() {
 	return { {
 		{
 			.location = 0,
@@ -136,6 +138,12 @@ std::array<VkVertexInputAttributeDescription, 3> vertexAttributes() {
 			.binding = 0,
 			.format = VK_FORMAT_R32G32B32_SFLOAT,
 			.offset = offsetof(Vertex, normal),
+		},
+		{
+			.location = 3,
+			.binding = 0,
+			.format = VK_FORMAT_R32G32_SFLOAT,
+			.offset = offsetof(Vertex, uv),
 		},
 	} };
 }

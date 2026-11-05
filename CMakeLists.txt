@@ -4,6 +4,7 @@ include(FetchContent)
 project(vulkan-starter-app LANGUAGES C CXX)
 
 add_executable(${PROJECT_NAME} source/main.cpp source/graphics_internal.cpp source/application.cpp source/vk_buffer.cpp source/geometry.cpp source/mesh.cpp source/pipeline.cpp source/transform.cpp source/animation.cpp source/camera.cpp source/model.cpp source/scene.cpp source/material.cpp source/lighting.cpp source/storage_array.cpp source/light_gizmos.cpp)
+target_sources(${PROJECT_NAME} PRIVATE source/vk_upload.cpp source/texture.cpp)
 
 if(LINUX)
 	target_compile_options(${PROJECT_NAME} PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
@@ -55,6 +56,12 @@ FetchContent_Declare(
 	GIT_TAG 1.0.1
 )
 
+FetchContent_Declare(
+	lodepng
+	GIT_REPOSITORY https://github.com/lvandeve/lodepng.git
+	GIT_TAG 7b2893e35891c0c85bee5595caafaf3c2044b409
+)
+
 find_package(Vulkan REQUIRED)
 
 set(GLFW_LIBRARY_TYPE STATIC)
@@ -68,7 +75,11 @@ FetchContent_MakeAvailable(
 	VulkanMemoryAllocator
 	imgui
 	glm
+	lodepng
 )
+
+add_library(lodepng STATIC ${lodepng_SOURCE_DIR}/lodepng.cpp)
+target_include_directories(lodepng SYSTEM PUBLIC ${lodepng_SOURCE_DIR})
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
 	glfw
@@ -76,6 +87,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 	vk-bootstrap::vk-bootstrap
 	GPUOpen::VulkanMemoryAllocator
 	glm::glm
+	lodepng
 )
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE
@@ -132,3 +144,4 @@ if(GLSLC_FOUND)
 endif()
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE SHADER_DIR="${CMAKE_SOURCE_DIR}/shaders/")
+target_compile_definitions(${PROJECT_NAME} PRIVATE TEXTURE_DIR="${CMAKE_SOURCE_DIR}/resources/textures/")

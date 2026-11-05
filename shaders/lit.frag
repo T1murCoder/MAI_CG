@@ -3,11 +3,13 @@
 
 #include "lighting.glsl"
 
-layout(location = 0) in vec3 fragColor;
+layout(location = 0) in vec2 fragUv;
 layout(location = 1) in vec3 fragNormal;
 layout(location = 2) in vec3 fragWorldPosition;
 
 layout(location = 0) out vec4 outColor;
+
+layout(set = 1, binding = 1) uniform sampler2D albedoTexture;
 
 // Освещённость пикселя: рассеянный свет + направленный, точечные источники и прожекторы по Блинн-Фонгу
 void main() {
@@ -15,8 +17,8 @@ void main() {
 	const vec3 N = normalize(fragNormal);
 	const vec3 V = normalize(scene.camera_position.xyz - fragWorldPosition);
 
-	// Процедурный цвет вершин тонирует альбедо материала: при белом альбедо куб выглядит как в ЛР1
-	const vec3 albedo = object.albedo.rgb * fragColor;
+	// sRGB-текстура декодируется аппаратно; освещение и tint применяются в линейном пространстве.
+	const vec3 albedo = object.albedo.rgb * texture(albedoTexture, fragUv).rgb;
 	const vec3 specular = object.specular.rgb;
 	const float shininess = object.specular.w;
 
@@ -51,11 +53,11 @@ void main() {
 
 	// Тон-маппинг: экспозиция и оператор Рейнхарда x / (1 + x) плавно сжимают освещённость [0, ∞)
 	// в [0, 1) вместо обрезки по 1 — яркий цветной свет не «выгорает» в белый. Гамма-коррекцию
-	// после этого делает sRGB-формат swapchain
+	// после этого делает sRGB-формат swapchain либо encodeOutputColor для UNORM
 	if (scene.tone_mapping.y > 0.0) {
 		color *= scene.tone_mapping.x;
 		color = color / (1.0 + color);
 	}
 
-	outColor = vec4(color, 1.0);
+	outColor = vec4(encodeOutputColor(color), 1.0);
 }

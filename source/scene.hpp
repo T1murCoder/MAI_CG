@@ -10,6 +10,7 @@
 #include "lighting.hpp"
 #include "mesh.hpp"
 #include "model.hpp"
+#include "texture.hpp"
 #include "vk_buffer.hpp"
 
 // Сцена: камера, источники света, меши, модели и общие для них Vulkan-ресурсы (дескрипторы, pipeline).
@@ -50,6 +51,7 @@ private:
 	Mesh cube_mesh;
 	Mesh white_cube_mesh;
 	Mesh plane_mesh;
+	Texture albedo_texture;
 
 	// У каждой модели своя трансформация, анимация и материал; GPU-записи хранятся вместе
 	std::vector<Model> models;

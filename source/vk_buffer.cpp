@@ -2,9 +2,9 @@
 
 #include <cstring>
 #include <iostream>
-#include <limits>
 
 #include "graphics_internal.hpp"
+#include "vk_upload.hpp"
 
 namespace vk_buffer {
 
@@ -13,19 +13,13 @@ namespace {
 // Временные ресурсы одной загрузки. Команды завершаются до выхода из upload().
 struct UploadResources {
 	Buffer staging;
-	VkCommandPool pool = VK_NULL_HANDLE;
-	VkFence fence = VK_NULL_HANDLE;
 
 	~UploadResources() {
-		const auto& context = graphics::internal::context;
-		vkDestroyFence(context.device, fence, nullptr);
-		vkDestroyCommandPool(context.device, pool, nullptr);
 		destroy(staging);
 	}
 };
 
 bool upload(std::span<const std::byte> data, VkBuffer destination) {
-	const auto& context = graphics::internal::context;
 	UploadResources resources;
 	if (!create(data.size_bytes(), VK_BUFFER_USAGE_TRANSFER_SRC_BIT, resources.staging)) {
 		return false;
@@ -35,68 +29,23 @@ bool upload(std::span<const std::byte> data, VkBuffer destination) {
 		return false;
 	}
 
-	const VkCommandPoolCreateInfo pool_info = {
-		.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-		.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
-		.queueFamilyIndex = context.graphics_queue_index,
-	};
-	if (vkCreateCommandPool(context.device, &pool_info, nullptr, &resources.pool) != VK_SUCCESS) {
-		return false;
-	}
-	const VkCommandBufferAllocateInfo allocate_info = {
-		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-		.commandPool = resources.pool,
-		.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-		.commandBufferCount = 1,
-	};
-	VkCommandBuffer command_buffer = VK_NULL_HANDLE;
-	if (vkAllocateCommandBuffers(context.device, &allocate_info, &command_buffer) != VK_SUCCESS) {
-		return false;
-	}
-	const VkCommandBufferBeginInfo begin_info = {
-		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-		.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-	};
-	if (vkBeginCommandBuffer(command_buffer, &begin_info) != VK_SUCCESS) {
-		return false;
-	}
-	const VkBufferCopy copy = { .size = data.size_bytes() };
-	vkCmdCopyBuffer(command_buffer, resources.staging.buffer, destination, 1, &copy);
+	return vk_upload::submit([&](VkCommandBuffer command_buffer) {
+		const VkBufferCopy copy = { .size = data.size_bytes() };
+		vkCmdCopyBuffer(command_buffer, resources.staging.buffer, destination, 1, &copy);
 
-	// Зависимость transfer write -> последующее чтение (в том числе vertex/index input).
-	const VkBufferMemoryBarrier barrier = {
-		.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
-		.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-		.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT,
-		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		.buffer = destination,
-		.size = VK_WHOLE_SIZE,
-	};
-	vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-						 0, 0, nullptr, 1, &barrier, 0, nullptr);
-	if (vkEndCommandBuffer(command_buffer) != VK_SUCCESS) {
-		return false;
-	}
-	const VkFenceCreateInfo fence_info = { .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
-	if (vkCreateFence(context.device, &fence_info, nullptr, &resources.fence) != VK_SUCCESS) {
-		return false;
-	}
-	const VkSubmitInfo submit_info = {
-		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-		.commandBufferCount = 1,
-		.pCommandBuffers = &command_buffer,
-	};
-	if (vkQueueSubmit(context.graphics_queue, 1, &submit_info, resources.fence) != VK_SUCCESS) {
-		return false;
-	}
-	if (vkWaitForFences(context.device, 1, &resources.fence, VK_TRUE,
-						std::numeric_limits<uint64_t>::max()) != VK_SUCCESS) {
-		// При ошибке ожидания не освобождаем ресурсы до остановки очереди.
-		vkQueueWaitIdle(context.graphics_queue);
-		return false;
-	}
-	return true;
+		// Зависимость transfer write -> последующее чтение (в том числе vertex/index input).
+		const VkBufferMemoryBarrier barrier = {
+			.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER,
+			.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+			.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT,
+			.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+			.buffer = destination,
+			.size = VK_WHOLE_SIZE,
+		};
+		vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+							 0, 0, nullptr, 1, &barrier, 0, nullptr);
+	});
 }
 
 } // namespace

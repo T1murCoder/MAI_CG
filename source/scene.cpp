@@ -33,6 +33,28 @@ constexpr VkDescriptorSetLayoutBinding kModelUniformBinding = {
 	.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
 };
 
+constexpr VkDescriptorSetLayoutBinding kAlbedoBinding = {
+	.binding = 1,
+	.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+	.descriptorCount = 1,
+	.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+};
+
+bool isSrgbFormat(VkFormat format) {
+	switch (format) {
+	case VK_FORMAT_R8_SRGB:
+	case VK_FORMAT_R8G8_SRGB:
+	case VK_FORMAT_R8G8B8_SRGB:
+	case VK_FORMAT_B8G8R8_SRGB:
+	case VK_FORMAT_R8G8B8A8_SRGB:
+	case VK_FORMAT_B8G8R8A8_SRGB:
+	case VK_FORMAT_A8B8G8R8_SRGB_PACK32:
+		return true;
+	default:
+		return false;
+	}
+}
+
 // Storage-буфер с массивом источников света — читается только во фрагментном шейдере
 constexpr VkDescriptorSetLayoutBinding storageBinding(uint32_t binding) {
 	return {
@@ -64,8 +86,8 @@ bool createSetLayout(std::span<const VkDescriptorSetLayoutBinding> bindings, VkD
 
 bool Scene::create() {
 	if (!cube_mesh.create(geometry::makeCube()) || !white_cube_mesh.create(geometry::makeCube(false)) ||
-		!plane_mesh.create(geometry::makePlane()) || !createModels() || !createDescriptors() ||
-		!createPipeline()) {
+		!plane_mesh.create(geometry::makePlane()) || !albedo_texture.create(TEXTURE_DIR "uv_grid.png") ||
+		!createModels() || !createDescriptors() || !createPipeline()) {
 		// В том числе освобождаем уже созданные ресурсы при частичной ошибке инициализации.
 		destroy();
 		return false;
@@ -90,6 +112,7 @@ void Scene::destroy() {
 	vkDestroyDescriptorPool(context.device, descriptor_pool, nullptr);
 	vkDestroyDescriptorSetLayout(context.device, model_set_layout, nullptr);
 	vkDestroyDescriptorSetLayout(context.device, scene_set_layout, nullptr);
+	albedo_texture.destroy();
 
 	plane_mesh.destroy();
 	white_cube_mesh.destroy();
@@ -126,6 +149,8 @@ void Scene::record(VkCommandBuffer command_buffer, float aspect) {
 	SceneUniforms scene_uniforms = {};
 	camera.fill(scene_uniforms, aspect);
 	lighting.upload(scene_uniforms);
+	// Проверяем реальный формат каждый кадр, в том числе после пересоздания swapchain.
+	scene_uniforms.tone_mapping.z = isSrgbFormat(graphics::internal::context.swapchain_format) ? 0.0f : 1.0f;
 	std::memcpy(scene_uniform_buffer.mapped, &scene_uniforms, sizeof(scene_uniforms));
 	if (!vk_buffer::flush(scene_uniform_buffer)) {
 		return;
@@ -158,15 +183,16 @@ void Scene::record(VkCommandBuffer command_buffer, float aspect) {
 	light_gizmos.record(command_buffer, lighting);
 }
 
-// Создаёт два общих набора: сцена (UBO + SSBO света) и модели (dynamic UBO)
+// Создаёт два общих набора: сцена (UBO + SSBO света) и модели (dynamic UBO + albedo)
 bool Scene::createDescriptors() {
 	auto& context = graphics::internal::context;
 
 	// Набор сцены: uniform-буфер (binding 0), массивы точечных источников (binding 1) и прожекторов (binding 2);
-	// набор моделей: dynamic uniform-буфер
+	// набор моделей: dynamic uniform-буфер и общая albedo-текстура
 	const VkDescriptorSetLayoutBinding scene_bindings[] = { kUniformBinding, storageBinding(1), storageBinding(2) };
+	const VkDescriptorSetLayoutBinding model_bindings[] = { kModelUniformBinding, kAlbedoBinding };
 	if (!createSetLayout(scene_bindings, scene_set_layout) ||
-		!createSetLayout({ &kModelUniformBinding, 1 }, model_set_layout)) {
+		!createSetLayout(model_bindings, model_set_layout)) {
 		return false;
 	}
 
@@ -175,6 +201,7 @@ bool Scene::createDescriptors() {
 	const VkDescriptorPoolSize pool_sizes[] = {
 		{ .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1 },
 		{ .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, .descriptorCount = 1 },
+		{ .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1 },
 		{ .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 2 },
 	};
 
@@ -260,15 +287,26 @@ bool Scene::createDescriptors() {
 		.offset = 0,
 		.range = sizeof(ModelUniforms),
 	};
-	const VkWriteDescriptorSet model_write = {
-		.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-		.dstSet = model_descriptor_set,
-		.dstBinding = 0,
-		.descriptorCount = 1,
-		.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
-		.pBufferInfo = &model_buffer_info,
+	const VkDescriptorImageInfo albedo_info = albedo_texture.descriptor();
+	const VkWriteDescriptorSet model_writes[] = {
+		{
+			.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			.dstSet = model_descriptor_set,
+			.dstBinding = 0,
+			.descriptorCount = 1,
+			.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
+			.pBufferInfo = &model_buffer_info,
+		},
+		{
+			.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			.dstSet = model_descriptor_set,
+			.dstBinding = 1,
+			.descriptorCount = 1,
+			.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+			.pImageInfo = &albedo_info,
+		},
 	};
-	vkUpdateDescriptorSets(context.device, 1, &model_write, 0, nullptr);
+	vkUpdateDescriptorSets(context.device, uint32_t(std::size(model_writes)), model_writes, 0, nullptr);
 
 	// Storage-буферы источников света сами привязываются к своим binding набора сцены
 	return lighting.create(scene_descriptor_set);
@@ -288,17 +326,16 @@ bool Scene::createModels() {
 		.mesh = &cube_mesh,
 		.transform = { .position = glm::vec3(2.0f, 0.0f, 0.0f) },
 		.animation = Animation(true, 0.0f, 0.0f, glm::vec3(0.0f, 30.0f, 0.0f)),
-		.material = { .albedo = glm::vec3(1.0f, 0.55f, 0.15f) },
 	});
 
 	models.emplace_back(Model::Description{
 		.name = "Floor",
 		.mesh = &plane_mesh,
 		.transform = { .position = glm::vec3(0.0f, -1.0f, 0.0f), .scale = glm::vec3(12.0f, 1.0f, 12.0f) },
-		.material = { .albedo = glm::vec3(0.8f), .specular = glm::vec3(0.2f), .shininess = 16.0f },
+		.material = { .specular = glm::vec3(0.2f), .shininess = 16.0f },
 	});
 
-	const Material wall_material = { .albedo = glm::vec3(0.7f), .specular = glm::vec3(0.1f), .shininess = 8.0f };
+	const Material wall_material = { .specular = glm::vec3(0.1f), .shininess = 8.0f };
 	models.emplace_back(Model::Description{
 		.name = "Back Wall",
 		.mesh = &plane_mesh,
@@ -314,18 +351,18 @@ bool Scene::createModels() {
 		.material = wall_material,
 	});
 
-	// Кубы с контрастными материалами: металлический (тёмный, с ярким резким бликом) и матовый (без блика)
+	// Кубы с контрастными бликами: металлический (яркий резкий блик) и матовый (без блика)
 	models.emplace_back(Model::Description{
 		.name = "Metal Cube",
 		.mesh = &white_cube_mesh,
 		.transform = { .position = glm::vec3(-3.0f, -0.5f, -3.0f) },
-		.material = { .albedo = glm::vec3(0.25f), .specular = glm::vec3(1.0f), .shininess = 256.0f },
+		.material = { .specular = glm::vec3(1.0f), .shininess = 256.0f },
 	});
 	models.emplace_back(Model::Description{
 		.name = "Matte Cube",
 		.mesh = &white_cube_mesh,
 		.transform = { .position = glm::vec3(0.0f, -0.5f, -4.0f) },
-		.material = { .albedo = glm::vec3(0.3f, 0.75f, 0.4f), .specular = glm::vec3(0.0f), .shininess = 1.0f },
+		.material = { .specular = glm::vec3(0.0f), .shininess = 1.0f },
 	});
 
 	// Белый куб на полу со своей стеной-фоном: на него с боков светят тёплый и холодный прожекторы
@@ -334,7 +371,7 @@ bool Scene::createModels() {
 		.name = "Spotlit Cube",
 		.mesh = &white_cube_mesh,
 		.transform = { .position = glm::vec3(4.0f, -0.5f, -2.0f) },
-		.material = { .albedo = glm::vec3(0.9f), .specular = glm::vec3(0.2f), .shininess = 64.0f },
+		.material = { .specular = glm::vec3(0.2f), .shininess = 64.0f },
 	});
 	models.emplace_back(Model::Description{
 		.name = "Spotlit Cube Wall",

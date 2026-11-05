@@ -10,11 +10,12 @@
 
 namespace geometry {
 
-// Вершина меша: позиция в локальных координатах, процедурно вычисленный цвет и нормаль поверхности
+// Вершина меша: позиция, процедурный цвет (для совместимости), нормаль и UV
 struct Vertex {
 	glm::vec3 position;
 	glm::vec3 color;
 	glm::vec3 normal;
+	glm::vec2 uv;
 };
 
 // Геометрия меша в памяти CPU: вершины и индексы треугольников (обход CCW снаружи)
@@ -40,7 +41,7 @@ MeshData makeConeLines(uint32_t segments);
 // Описание вершинного буфера для пайплайна: один буфер в binding 0, шаг — одна Vertex
 VkVertexInputBindingDescription vertexBinding();
 
-// Описание атрибутов Vertex для пайплайна: позиция (location 0), цвет (location 1), нормаль (location 2)
-std::array<VkVertexInputAttributeDescription, 3> vertexAttributes();
+// Атрибуты: позиция (location 0), цвет (1), нормаль (2), UV (3)
+std::array<VkVertexInputAttributeDescription, 4> vertexAttributes();
 
 } // namespace geometry
