@@ -10,6 +10,9 @@ layout(location = 2) in vec3 fragWorldPosition;
 layout(location = 0) out vec4 outColor;
 
 layout(set = 1, binding = 1) uniform sampler2D albedoTexture;
+// Подготовлены каталогом; вклад в освещение добавляется в фазах 5 и 6.
+layout(set = 1, binding = 2) uniform sampler2D specularTexture;
+layout(set = 1, binding = 3) uniform sampler2D emissiveTexture;
 
 // Освещённость пикселя: рассеянный свет + направленный, точечные источники и прожекторы по Блинн-Фонгу
 void main() {
@@ -18,7 +21,9 @@ void main() {
 	const vec3 V = normalize(scene.camera_position.xyz - fragWorldPosition);
 
 	// sRGB-текстура декодируется аппаратно; освещение и tint применяются в линейном пространстве.
-	const vec3 albedo = object.albedo.rgb * texture(albedoTexture, fragUv).rgb;
+	// Общие базовые UV для всех карт материала; фаза 4 добавит повторение.
+	const vec2 materialUv = fragUv;
+	const vec3 albedo = object.albedo.rgb * texture(albedoTexture, materialUv).rgb;
 	const vec3 specular = object.specular.rgb;
 	const float shininess = object.specular.w;
 

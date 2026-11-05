@@ -13,7 +13,7 @@
 #include "transform.hpp"
 
 // Объект сцены: меш (общий с другими моделями), положение, анимация, материал
-// GPU-данные и общий набор дескрипторов моделей принадлежат сцене
+// GPU-данные принадлежат сцене; изображения и наборы материалов — её каталогу
 class Model {
 public:
 	// Начальные параметры модели; меш не принадлежит модели и должен жить дольше неё
@@ -22,7 +22,8 @@ public:
 		const Mesh* mesh = nullptr;
 		Transform transform;
 		Animation animation;
-		Material material;
+		MaterialParameters material;
+		MaterialId material_id = MaterialId::UvGrid;
 	};
 
 	explicit Model(const Description& description);
@@ -37,12 +38,14 @@ public:
 	void draw(VkCommandBuffer command_buffer) const;
 
 	// Сворачиваемая секция с трансформацией, анимацией и материалом модели в текущем окне ImGui
-	void drawUi();
+	void drawUi(const MaterialCatalog& materials);
+	MaterialId materialId() const { return material_id; }
 
 private:
 	std::string name;
 	const Mesh* mesh;
 	Transform transform;
 	Animation animation;
-	Material material;
+	MaterialParameters material;
+	MaterialId material_id;
 };

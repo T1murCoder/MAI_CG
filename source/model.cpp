@@ -6,7 +6,7 @@ using shader::ModelUniforms;
 
 Model::Model(const Description& description)
 	: name(description.name), mesh(description.mesh), transform(description.transform),
-	  animation(description.animation), material(description.material) {}
+	  animation(description.animation), material(description.material), material_id(description.material_id) {}
 
 void Model::update(double dt) {
 	animation.update(dt);
@@ -32,11 +32,13 @@ void Model::draw(VkCommandBuffer command_buffer) const {
 
 // PushID разделяет одинаковые подписи виджетов ("Position", "Animate", ...) разных моделей;
 // ID берётся из имени, а не из адреса, чтобы состояние UI переживало переаллокацию вектора моделей
-void Model::drawUi() {
+void Model::drawUi(const MaterialCatalog& materials) {
 	ImGui::PushID(name.c_str());
 	if (ImGui::CollapsingHeader(name.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
 		transform.drawUi();
 		animation.drawUi();
+		ImGui::SeparatorText("Material");
+		materials.drawSelectionUi(material_id);
 		material.drawUi();
 	}
 	ImGui::PopID();

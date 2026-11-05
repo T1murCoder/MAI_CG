@@ -10,11 +10,10 @@
 #include "lighting.hpp"
 #include "mesh.hpp"
 #include "model.hpp"
-#include "texture.hpp"
 #include "vk_buffer.hpp"
 
 // Сцена: камера, источники света, меши, модели и общие для них Vulkan-ресурсы (дескрипторы, pipeline).
-// В шейдерах set 0 — данные сцены (общие для всех моделей), set 1 — данные конкретной модели
+// В шейдерах set 0 — данные сцены, set 1 — материал и общий dynamic UBO моделей
 class Scene {
 public:
 	// Создаёт меши, дескрипторы (вместе со storage-буферами источников света), модели,
@@ -51,14 +50,13 @@ private:
 	Mesh cube_mesh;
 	Mesh white_cube_mesh;
 	Mesh plane_mesh;
-	Texture albedo_texture;
+	MaterialCatalog materials;
 
 	// У каждой модели своя трансформация, анимация и материал; GPU-записи хранятся вместе
 	std::vector<Model> models;
 
-	// Layout набора сцены (set 0), общего набора моделей (set 1) и пул обоих наборов
+	// Layout и пул набора сцены (set 0); set 1 принадлежит каталогу материалов
 	VkDescriptorSetLayout scene_set_layout = VK_NULL_HANDLE;
-	VkDescriptorSetLayout model_set_layout = VK_NULL_HANDLE;
 	VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
 
 	// Uniform-буфер с общими данными сцены и его набор дескрипторов (set 0)
@@ -69,11 +67,10 @@ private:
 	// Диапазон дескриптора — одна ModelUniforms, stride учитывает выравнивание GPU.
 	vk_buffer::Buffer model_uniform_buffer;
 	VkDeviceSize model_uniform_stride = 0;
-	VkDescriptorSet model_descriptor_set = VK_NULL_HANDLE;
 
 	// Один pipeline layout на все пайплайны сцены: set 0, set 1 и push constant визуализаций источников.
 	// Общий layout совместим сам с собой, поэтому набор сцены остаётся привязанным при смене пайплайна.
-	// Pipeline моделей (шейдеры lit.*) общий — различается dynamic offset одного набора set 1
+	// Pipeline моделей (lit.*) общий — различаются набор материала и dynamic offset модели
 	VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
 	VkPipeline pipeline = VK_NULL_HANDLE;
 };

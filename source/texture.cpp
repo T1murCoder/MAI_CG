@@ -12,7 +12,6 @@
 
 namespace {
 
-constexpr VkFormat kFormat = VK_FORMAT_R8G8B8A8_SRGB;
 constexpr VkImageSubresourceRange kColorRange = {
 	.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
 	.baseMipLevel = 0,
@@ -23,7 +22,8 @@ constexpr VkImageSubresourceRange kColorRange = {
 
 } // namespace
 
-bool Texture::create(const char* path) {
+bool Texture::create(const char* path, ColorSpace color_space) {
+	format = color_space == ColorSpace::Srgb ? VK_FORMAT_R8G8B8A8_SRGB : VK_FORMAT_R8G8B8A8_UNORM;
 	std::vector<unsigned char> pixels;
 	unsigned width = 0, height = 0;
 	const unsigned error = lodepng::decode(pixels, width, height, path, LCT_RGBA, 8);
@@ -69,17 +69,17 @@ bool Texture::createImage(uint32_t width, uint32_t height) {
 		return false;
 	}
 	VkFormatProperties format_properties;
-	vkGetPhysicalDeviceFormatProperties(context.physical_device, kFormat, &format_properties);
+	vkGetPhysicalDeviceFormatProperties(context.physical_device, format, &format_properties);
 	constexpr VkFormatFeatureFlags required = VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT |
 		VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT;
 	if ((format_properties.optimalTilingFeatures & required) != required) {
-		std::cerr << "Device does not support linearly filtered RGBA8 sRGB textures\n";
+		std::cerr << "Device does not support linearly filtered RGBA8 textures (format " << format << ")\n";
 		return false;
 	}
 	const VkImageCreateInfo image_info = {
 		.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
 		.imageType = VK_IMAGE_TYPE_2D,
-		.format = kFormat,
+		.format = format,
 		.extent = { width, height, 1 },
 		.mipLevels = 1,
 		.arrayLayers = 1,
@@ -141,7 +141,7 @@ bool Texture::createViewAndSampler() {
 		.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
 		.image = image,
 		.viewType = VK_IMAGE_VIEW_TYPE_2D,
-		.format = kFormat,
+		.format = format,
 		.subresourceRange = kColorRange,
 	};
 	if (vkCreateImageView(context.device, &view_info, nullptr, &view) != VK_SUCCESS) {
