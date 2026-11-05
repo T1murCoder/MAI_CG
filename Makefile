@@ -1,6 +1,14 @@
-PRESET ?= mingw-debug
-BUILD_DIR ?= build-debug
-EXE := $(BUILD_DIR)/vulkan-starter-app.exe
+ifeq ($(OS),Windows_NT)
+    PRESET ?= mingw-debug
+    BUILD_DIR ?= build-debug
+    EXE_SUFFIX := .exe
+else
+    PRESET ?= debug
+    BUILD_DIR ?= build-debug
+    EXE_SUFFIX :=
+endif
+
+EXE := $(BUILD_DIR)/vulkan-starter-app$(EXE_SUFFIX)
 
 .PHONY: all configure build run clean rebuild
 
