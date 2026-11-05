@@ -2,6 +2,7 @@
 
 #include <cstring>
 #include <iostream>
+#include <limits>
 #include <span>
 
 #include <glm/glm.hpp>
@@ -13,13 +14,21 @@
 #include "shader_types.hpp"
 
 using shader::SceneUniforms;
+using shader::ModelUniforms;
 
 namespace {
 
-// Uniform-буфер в binding 0 набора — данные сцены или модели, нужны обоим шейдерам
+// Uniform-буфер сцены в binding 0; нужен обоим шейдерам
 constexpr VkDescriptorSetLayoutBinding kUniformBinding = {
 	.binding = 0,
 	.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+	.descriptorCount = 1,
+	.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+};
+
+constexpr VkDescriptorSetLayoutBinding kModelUniformBinding = {
+	.binding = 0,
+	.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
 	.descriptorCount = 1,
 	.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
 };
@@ -55,19 +64,10 @@ bool createSetLayout(std::span<const VkDescriptorSetLayoutBinding> bindings, VkD
 
 bool Scene::create() {
 	if (!cube_mesh.create(geometry::makeCube()) || !white_cube_mesh.create(geometry::makeCube(false)) ||
-		!plane_mesh.create(geometry::makePlane())) {
-		return false;
-	}
-
-	if (!createDescriptors()) {
-		return false;
-	}
-
-	if (!createModels()) {
-		return false;
-	}
-
-	if (!createPipeline()) {
+		!plane_mesh.create(geometry::makePlane()) || !createModels() || !createDescriptors() ||
+		!createPipeline()) {
+		// В том числе освобождаем уже созданные ресурсы при частичной ошибке инициализации.
+		destroy();
 		return false;
 	}
 
@@ -81,11 +81,10 @@ void Scene::destroy() {
 	vkDestroyPipeline(context.device, pipeline, nullptr);
 	vkDestroyPipelineLayout(context.device, pipeline_layout, nullptr);
 
-	for (Model& model : models) {
-		model.destroy();
-	}
+	models.clear();
 
 	lighting.destroy();
+	vk_buffer::destroy(model_uniform_buffer);
 	vk_buffer::destroy(scene_uniform_buffer);
 
 	vkDestroyDescriptorPool(context.device, descriptor_pool, nullptr);
@@ -128,48 +127,60 @@ void Scene::record(VkCommandBuffer command_buffer, float aspect) {
 	camera.fill(scene_uniforms, aspect);
 	lighting.upload(scene_uniforms);
 	std::memcpy(scene_uniform_buffer.mapped, &scene_uniforms, sizeof(scene_uniforms));
+	if (!vk_buffer::flush(scene_uniform_buffer)) {
+		return;
+	}
 
-	for (Model& model : models) {
-		model.uploadUniforms();
+	for (size_t i = 0; i < models.size(); ++i) {
+		const ModelUniforms uniforms = models[i].uniforms();
+		auto* destination = static_cast<std::byte*>(model_uniform_buffer.mapped) + i * model_uniform_stride;
+		std::memcpy(destination, &uniforms, sizeof(uniforms));
+	}
+	if (!vk_buffer::flush(model_uniform_buffer)) {
+		return;
 	}
 
 	vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 
-	// Набор сцены (set 0) привязывается один раз за кадр; модели меняют только set 1
+	// Набор сцены (set 0) привязывается один раз за кадр
 	vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0, 1,
 							&scene_descriptor_set, 0, nullptr);
 
-	for (const Model& model : models) {
-		model.draw(command_buffer, pipeline_layout);
+	for (size_t i = 0; i < models.size(); ++i) {
+		// Диапазон и представимость offset в uint32_t проверены при создании буфера.
+		const uint32_t dynamic_offset = uint32_t(i * model_uniform_stride);
+		vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 1, 1,
+								&model_descriptor_set, 1, &dynamic_offset);
+		models[i].draw(command_buffer);
 	}
 
 	// Тот же pipeline layout — набор сцены (set 0) остаётся привязанным
 	light_gizmos.record(command_buffer, lighting);
 }
 
-// Создаёт layout'ы наборов сцены и моделей, пул дескрипторов и набор сцены с его uniform-буфером
-// и storage-буферами источников света; наборы моделей выделяют сами модели в Model::create
+// Создаёт два общих набора: сцена (UBO + SSBO света) и модели (dynamic UBO)
 bool Scene::createDescriptors() {
 	auto& context = graphics::internal::context;
 
 	// Набор сцены: uniform-буфер (binding 0), массивы точечных источников (binding 1) и прожекторов (binding 2);
-	// набор модели: uniform-буфер
+	// набор моделей: dynamic uniform-буфер
 	const VkDescriptorSetLayoutBinding scene_bindings[] = { kUniformBinding, storageBinding(1), storageBinding(2) };
 	if (!createSetLayout(scene_bindings, scene_set_layout) ||
-		!createSetLayout({ &kUniformBinding, 1 }, model_set_layout)) {
+		!createSetLayout({ &kModelUniformBinding, 1 }, model_set_layout)) {
 		return false;
 	}
 
-	// Один набор сцены плюс по одному набору на модель, в каждом по одному uniform-буферу.
+	// Один набор сцены и один общий набор моделей.
 	// Storage-буферы — массивы источников света в наборе сцены (точечные и прожекторы)
 	const VkDescriptorPoolSize pool_sizes[] = {
-		{ .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1 + kMaxModels },
+		{ .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1 },
+		{ .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, .descriptorCount = 1 },
 		{ .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 2 },
 	};
 
 	const VkDescriptorPoolCreateInfo pool_info = {
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-		.maxSets = 1 + kMaxModels,
+		.maxSets = 2,
 		.poolSizeCount = sizeof(pool_sizes) / sizeof(pool_sizes[0]),
 		.pPoolSizes = pool_sizes,
 	};
@@ -213,11 +224,57 @@ bool Scene::createDescriptors() {
 
 	vkUpdateDescriptorSets(context.device, 1, &write, 0, nullptr);
 
+	VkPhysicalDeviceProperties properties;
+	vkGetPhysicalDeviceProperties(context.physical_device, &properties);
+	const auto& limits = properties.limits;
+	const VkDeviceSize alignment = limits.minUniformBufferOffsetAlignment;
+	if (models.empty() || alignment == 0 || sizeof(ModelUniforms) > limits.maxUniformBufferRange ||
+		limits.maxDescriptorSetUniformBuffersDynamic < 1) {
+		std::cerr << "Device limits do not support the model dynamic UBO\n";
+		return false;
+	}
+	model_uniform_stride = ((sizeof(ModelUniforms) + alignment - 1) / alignment) * alignment;
+	if (model_uniform_stride > std::numeric_limits<size_t>::max() / models.size() ||
+		(models.size() - 1) > std::numeric_limits<uint32_t>::max() / model_uniform_stride) {
+		std::cerr << "Model dynamic UBO size or offsets exceed addressable limits\n";
+		return false;
+	}
+	// При i < models.size(): i * stride + sizeof(ModelUniforms) <= buffer_size,
+	// а offset кратен minUniformBufferOffsetAlignment и представим в uint32_t.
+	const VkDeviceSize buffer_size = models.size() * model_uniform_stride;
+	if (!vk_buffer::create(buffer_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, model_uniform_buffer)) {
+		return false;
+	}
+	const VkDescriptorSetAllocateInfo model_alloc_info = {
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+		.descriptorPool = descriptor_pool,
+		.descriptorSetCount = 1,
+		.pSetLayouts = &model_set_layout,
+	};
+	if (vkAllocateDescriptorSets(context.device, &model_alloc_info, &model_descriptor_set) != VK_SUCCESS) {
+		std::cerr << "Failed to allocate shared model descriptor set\n";
+		return false;
+	}
+	const VkDescriptorBufferInfo model_buffer_info = {
+		.buffer = model_uniform_buffer.buffer,
+		.offset = 0,
+		.range = sizeof(ModelUniforms),
+	};
+	const VkWriteDescriptorSet model_write = {
+		.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+		.dstSet = model_descriptor_set,
+		.dstBinding = 0,
+		.descriptorCount = 1,
+		.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
+		.pBufferInfo = &model_buffer_info,
+	};
+	vkUpdateDescriptorSets(context.device, 1, &model_write, 0, nullptr);
+
 	// Storage-буферы источников света сами привязываются к своим binding набора сцены
 	return lighting.create(scene_descriptor_set);
 }
 
-// Создаёт модели сцены и их GPU-ресурсы; меш и дескрипторы уже должны быть созданы
+// Создаёт CPU-состояние моделей; меши уже должны быть созданы
 bool Scene::createModels() {
 	// Первый куб: трансформация и анимация по орбите управляются из UI
 	models.emplace_back(Model::Description{
@@ -290,12 +347,6 @@ bool Scene::createModels() {
 	if (models.size() > kMaxModels) {
 		std::cerr << "Too many models in scene: " << models.size() << " > " << kMaxModels << '\n';
 		return false;
-	}
-
-	for (Model& model : models) {
-		if (!model.create(model_set_layout, descriptor_pool)) {
-			return false;
-		}
 	}
 
 	return true;

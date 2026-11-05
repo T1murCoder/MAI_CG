@@ -17,7 +17,7 @@ layout(set = 0, binding = 0) uniform SceneUniforms {
 	vec4 tone_mapping;    // x — экспозиция, y — 1/0 тон-маппинг вкл/выкл
 } scene;
 
-// Данные текущей модели (set 1, свой набор на каждую модель): трансформация и материал
+// Данные текущей модели (set 1, общий dynamic UBO): запись выбирается dynamic offset при draw
 layout(set = 1, binding = 0) uniform ModelUniforms {
 	mat4 model;
 	mat4 normal_matrix; // transpose(inverse(model))

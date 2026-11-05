@@ -34,7 +34,7 @@ public:
 	void record(VkCommandBuffer command_buffer, float aspect);
 
 private:
-	// Сколько моделей можно создать — под это число рассчитан пул дескрипторов
+	// Верхняя граница числа моделей сцены
 	static constexpr uint32_t kMaxModels = 32;
 
 	bool createDescriptors();
@@ -51,10 +51,10 @@ private:
 	Mesh white_cube_mesh;
 	Mesh plane_mesh;
 
-	// У каждой модели своя трансформация, анимация, материал, uniform-буфер и набор дескрипторов
+	// У каждой модели своя трансформация, анимация и материал; GPU-записи хранятся вместе
 	std::vector<Model> models;
 
-	// Layout набора сцены (set 0), layout наборов моделей (set 1) и пул, из которого выделяются все наборы
+	// Layout набора сцены (set 0), общего набора моделей (set 1) и пул обоих наборов
 	VkDescriptorSetLayout scene_set_layout = VK_NULL_HANDLE;
 	VkDescriptorSetLayout model_set_layout = VK_NULL_HANDLE;
 	VkDescriptorPool descriptor_pool = VK_NULL_HANDLE;
@@ -63,9 +63,15 @@ private:
 	vk_buffer::Buffer scene_uniform_buffer;
 	VkDescriptorSet scene_descriptor_set = VK_NULL_HANDLE;
 
+	// Общий dynamic UBO моделей: запись i начинается по адресу i * model_uniform_stride.
+	// Диапазон дескриптора — одна ModelUniforms, stride учитывает выравнивание GPU.
+	vk_buffer::Buffer model_uniform_buffer;
+	VkDeviceSize model_uniform_stride = 0;
+	VkDescriptorSet model_descriptor_set = VK_NULL_HANDLE;
+
 	// Один pipeline layout на все пайплайны сцены: set 0, set 1 и push constant визуализаций источников.
 	// Общий layout совместим сам с собой, поэтому набор сцены остаётся привязанным при смене пайплайна.
-	// Pipeline моделей (шейдеры lit.*) общий для всех моделей — различаются только наборы set 1
+	// Pipeline моделей (шейдеры lit.*) общий — различается dynamic offset одного набора set 1
 	VkPipelineLayout pipeline_layout = VK_NULL_HANDLE;
 	VkPipeline pipeline = VK_NULL_HANDLE;
 };

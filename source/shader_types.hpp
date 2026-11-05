@@ -22,7 +22,8 @@ struct SceneUniforms {
 };
 static_assert(sizeof(SceneUniforms) == 160);
 
-// Данные одной модели (set 1, binding 0)
+// Одна запись общего dynamic UBO (set 1, binding 0). Stride определяется лимитами GPU,
+// диапазон дескриптора равен sizeof(ModelUniforms); запись выбирается dynamic offset
 struct ModelUniforms {
 	glm::mat4 model;
 	glm::mat4 normal_matrix; // transpose(inverse(model)) — переводит нормали в мир с учётом масштаба

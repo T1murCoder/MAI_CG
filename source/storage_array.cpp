@@ -27,6 +27,9 @@ uint32_t StorageArray::upload(const void* elements, uint32_t count) {
 	const uint32_t uploaded = std::min(count, capacity);
 	if (uploaded > 0) {
 		std::memcpy(buffer.mapped, elements, size_t(uploaded * element_size));
+		if (!vk_buffer::flush(buffer, 0, uploaded * element_size)) {
+			return 0;
+		}
 	}
 	return uploaded;
 }

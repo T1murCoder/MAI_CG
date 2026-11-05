@@ -9,11 +9,11 @@
 #include "animation.hpp"
 #include "material.hpp"
 #include "mesh.hpp"
+#include "shader_types.hpp"
 #include "transform.hpp"
-#include "vk_buffer.hpp"
 
 // Объект сцены: меш (общий с другими моделями), положение, анимация, материал
-// и собственные uniform-буфер с набором дескрипторов (set 1 в шейдерах)
+// GPU-данные и общий набор дескрипторов моделей принадлежат сцене
 class Model {
 public:
 	// Начальные параметры модели; меш не принадлежит модели и должен жить дольше неё
@@ -27,20 +27,14 @@ public:
 
 	explicit Model(const Description& description);
 
-	// Создаёт uniform-буфер модели и выделяет под него набор дескрипторов из pool по layout модели
-	bool create(VkDescriptorSetLayout model_set_layout, VkDescriptorPool pool);
-
-	// Уничтожает uniform-буфер; набор дескрипторов освобождается вместе с пулом
-	void destroy();
-
 	// Продвигает анимацию модели на dt секунд
 	void update(double dt);
 
-	// Записывает матрицы модели и нормалей и материал в uniform-буфер; вызывать только после ожидания fence кадра
-	void uploadUniforms();
+	// Формирует матрицы и материал для записи сцены в общий dynamic UBO
+	shader::ModelUniforms uniforms() const;
 
-	// Привязывает набор дескрипторов модели (set 1) и её меш и рисует её
-	void draw(VkCommandBuffer command_buffer, VkPipelineLayout pipeline_layout) const;
+	// Привязывает меш и рисует его; сцена уже выбрала запись модели через dynamic offset в set 1
+	void draw(VkCommandBuffer command_buffer) const;
 
 	// Сворачиваемая секция с трансформацией, анимацией и материалом модели в текущем окне ImGui
 	void drawUi();
@@ -51,7 +45,4 @@ private:
 	Transform transform;
 	Animation animation;
 	Material material;
-
-	vk_buffer::Buffer uniform_buffer;
-	VkDescriptorSet descriptor_set = VK_NULL_HANDLE;
 };
