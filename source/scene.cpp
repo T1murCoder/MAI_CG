@@ -281,7 +281,7 @@ bool Scene::createModels() {
 		.mesh = &cube_mesh,
 		.transform = { .position = glm::vec3(2.0f, 0.0f, 0.0f) },
 		.animation = Animation(true, 0.0f, 0.0f, glm::vec3(0.0f, 30.0f, 0.0f)),
-		.material_id = MaterialId::Tiles,
+		.material_id = MaterialId::MaskedMetal,
 	});
 
 	models.emplace_back(Model::Description{
@@ -311,13 +311,14 @@ bool Scene::createModels() {
 		.material_id = MaterialId::Brick,
 	});
 
-	// Кубы с контрастными бликами: металлический (яркий резкий блик) и матовый (без блика)
+	// Общий с Second Cube материал: блики только на металлических участках карты.
+	// Цвет/сила, shininess и переключатель specular независимы у каждой модели.
 	models.emplace_back(Model::Description{
 		.name = "Metal Cube",
 		.mesh = &white_cube_mesh,
 		.transform = { .position = glm::vec3(-3.0f, -0.5f, -3.0f) },
 		.material = { .specular = glm::vec3(1.0f), .shininess = 256.0f },
-		.material_id = MaterialId::Tiles,
+		.material_id = MaterialId::MaskedMetal,
 	});
 	models.emplace_back(Model::Description{
 		.name = "Matte Cube",

@@ -22,7 +22,7 @@ layout(set = 1, binding = 0) uniform ModelUniforms {
 	mat4 model;
 	mat4 normal_matrix; // transpose(inverse(model))
 	vec4 albedo;        // rgb — линейный множитель albedo-текстуры
-	vec4 specular;      // rgb — цвет блика, w — коэффициент блеска
+	vec4 specular;      // rgb — множитель specular-карты (0 при выключении), w — shininess
 	vec4 uv_repeat;     // xy — повторение по U/V для всех карт материала
 } object;
 

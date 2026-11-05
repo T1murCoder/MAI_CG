@@ -10,8 +10,8 @@ layout(location = 2) in vec3 fragWorldPosition;
 layout(location = 0) out vec4 outColor;
 
 layout(set = 1, binding = 1) uniform sampler2D albedoTexture;
-// Подготовлены каталогом; вклад в освещение добавляется в фазах 5 и 6.
 layout(set = 1, binding = 2) uniform sampler2D specularTexture;
+// Подготовлен каталогом; свечение подключается в фазе 6.
 layout(set = 1, binding = 3) uniform sampler2D emissiveTexture;
 
 // Освещённость пикселя: рассеянный свет + направленный, точечные источники и прожекторы по Блинн-Фонгу
@@ -25,7 +25,9 @@ void main() {
 	// сохраняем непрерывные координаты и производные для линейной фильтрации.
 	const vec2 materialUv = fragUv * object.uv_repeat.xy;
 	const vec3 albedo = object.albedo.rgb * texture(albedoTexture, materialUv).rgb;
-	const vec3 specular = object.specular.rgb;
+	// Specular — линейные данные (UNORM), с теми же UV, что и albedo.
+	// Чёрный fallback или нулевой множитель модели полностью убирают блики.
+	const vec3 specular = object.specular.rgb * texture(specularTexture, materialUv).rgb;
 	const float shininess = object.specular.w;
 
 	vec3 color = scene.ambient.rgb * scene.ambient.w * albedo;

@@ -20,7 +20,8 @@ ModelUniforms Model::uniforms() const {
 		.model = model,
 		.normal_matrix = glm::transpose(glm::inverse(model)),
 		.albedo = glm::vec4(material.albedo, 1.0f),
-		.specular = glm::vec4(material.specular, material.shininess),
+		// Переключатель не меняет сохранённый цвет/силу блика и общий набор материала.
+		.specular = glm::vec4(material.specular_enabled ? material.specular : glm::vec3(0.0f), material.shininess),
 		.uv_repeat = glm::vec4(material.uv_repeat, 0.0f, 0.0f),
 	};
 }

@@ -30,7 +30,7 @@ struct ModelUniforms {
 	glm::mat4 model;
 	glm::mat4 normal_matrix; // transpose(inverse(model)) — переводит нормали в мир с учётом масштаба
 	glm::vec4 albedo;        // rgb — линейный множитель albedo-текстуры, w не используется
-	glm::vec4 specular;      // rgb — цвет блика, w — коэффициент блеска (shininess)
+	glm::vec4 specular;      // rgb — множитель specular-карты (0 при выключении), w — shininess
 	glm::vec4 uv_repeat;     // xy — повторение по U/V для всех карт материала, zw не используются
 };
 static_assert(sizeof(ModelUniforms) == 176);

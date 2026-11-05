@@ -1,4 +1,4 @@
-"""Generate the original, seamless albedo patterns and the shared black fallback.
+"""Generate original material maps and the shared black fallback.
 
 Run with Python 3; no third-party packages are needed. uv_grid.png is kept as-is.
 """
@@ -46,7 +46,34 @@ def tiles(x, y):
     return base
 
 
+def metal_region(x, y):
+    """Seams (0), polished metal (1) and matte coating (2), shared by both maps."""
+    tx, ty = x % 128, y % 128
+    if min(tx, ty, 127 - tx, 127 - ty) < 6:
+        return 0
+    return 1 if (x // 128 + y // 128) % 2 == 0 else 2
+
+
+def metal_albedo(x, y):
+    region = metal_region(x, y)
+    if region == 0:
+        return (28, 34, 40)
+    if region == 1:
+        # Horizontal brush marks are albedo detail, not a normal map.
+        grain = (y * 7 + x // 8) % 11 - 5
+        return tuple(c + grain for c in (174, 186, 198))
+    return (42, 70, 92)
+
+
+def metal_specular(x, y):
+    # Linear reflectance: coated panels and seams are fully matte.
+    value = 240 if metal_region(x, y) == 1 else 0
+    return (value, value, value)
+
+
 if __name__ == "__main__":
     write_png("brick.png", 512, brick)
     write_png("tiles.png", 512, tiles)
     write_png("black.png", 1, lambda x, y: (0, 0, 0))
+    write_png("metal_albedo.png", 512, metal_albedo)
+    write_png("metal_specular.png", 512, metal_specular)

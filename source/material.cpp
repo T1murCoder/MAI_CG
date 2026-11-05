@@ -16,12 +16,13 @@ struct MaterialDefinition {
 	const char* emissive = nullptr;
 };
 
-// Порядок соответствует MaterialId. Необязательные карты подключаются здесь;
-// их влияние на освещение добавляют фазы 5/6, независимо от выбора материала.
+// Порядок соответствует MaterialId. Specular-карты загружаются как линейные данные;
+// для отсутствующих карт используется чёрный fallback. Emissive подключается в фазе 6.
 constexpr std::array kDefinitions = {
 	MaterialDefinition{ "UV Grid", TEXTURE_DIR "uv_grid.png" },
 	MaterialDefinition{ "Brick", TEXTURE_DIR "brick.png" },
 	MaterialDefinition{ "Tiles", TEXTURE_DIR "tiles.png" },
+	MaterialDefinition{ "Masked Metal", TEXTURE_DIR "metal_albedo.png", TEXTURE_DIR "metal_specular.png" },
 };
 static_assert(kDefinitions.size() == static_cast<size_t>(MaterialId::Count));
 
@@ -34,8 +35,11 @@ void MaterialParameters::drawUi() {
 	// AlwaysClamp ограничивает также значения, введённые вручную через Ctrl+Click.
 	ImGui::DragFloat("Repeat U", &uv_repeat.x, 0.05f, 0.1f, 32.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
 	ImGui::DragFloat("Repeat V", &uv_repeat.y, 0.05f, 0.1f, 32.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+	ImGui::Checkbox("Enable specular", &specular_enabled);
+	ImGui::BeginDisabled(!specular_enabled);
 	ImGui::ColorEdit3("Specular", &specular.x);
 	ImGui::SliderFloat("Shininess", &shininess, 1.0f, 512.0f, "%.1f", ImGuiSliderFlags_Logarithmic);
+	ImGui::EndDisabled();
 }
 
 bool MaterialCatalog::create(const VkDescriptorBufferInfo& model_buffer) {
