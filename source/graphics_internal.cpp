@@ -377,10 +377,14 @@ bool initialize(GLFWwindow* const window) {
 
 	vkb::InstanceBuilder ib;
 
-	auto ibr = ib.require_api_version(VK_MAKE_VERSION(1, 1, 0))
+	auto ibr = ib.require_api_version(VK_API_VERSION_1_3)
 				 .request_validation_layers()
 				 .use_default_debug_messenger()
 				 .build();
+	if (!ibr) {
+		std::cerr << "Vulkan 1.3 is required: " << ibr.error().message() << '\n';
+		return false;
+	}
 
 	auto vkb_instance = ibr.value();
 	vk_instance = vkb_instance.instance;
@@ -395,8 +399,14 @@ bool initialize(GLFWwindow* const window) {
 	}
 
 	vkb::PhysicalDeviceSelector pds(vkb_instance, vk_surface);
+	const VkPhysicalDeviceVulkan13Features features_13 = {
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+		.dynamicRendering = VK_TRUE,
+	};
 
 	auto pds_result = pds.prefer_gpu_device_type(vkb::PreferredDeviceType::discrete)
+						 .set_minimum_version(1, 3)
+						 .set_required_features_13(features_13)
 						 .require_present()
 						 .select();
 	if (!pds_result) {

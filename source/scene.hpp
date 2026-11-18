@@ -10,6 +10,7 @@
 #include "lighting.hpp"
 #include "mesh.hpp"
 #include "model.hpp"
+#include "shadow_map.hpp"
 #include "vk_buffer.hpp"
 
 // Сцена: камера, источники света, меши, модели и общие для них Vulkan-ресурсы (дескрипторы, pipeline).
@@ -29,9 +30,12 @@ public:
 	// Окно ImGui с настройками камеры, освещения, визуализации источников и всех моделей
 	void drawUi();
 
-	// Обновляет uniform-буферы и записывает команды отрисовки всех моделей и визуализаций источников;
-	// вызывать внутри render pass после ожидания fence кадра
-	void record(VkCommandBuffer command_buffer, float aspect);
+	// Снимок данных кадра и загрузка GPU-буферов: после ожидания fence, до любых проходов.
+	bool prepareFrame(float aspect);
+	// Записывает Dynamic Rendering вне основного render pass, используя данные prepareFrame().
+	void recordShadowMap(VkCommandBuffer command_buffer);
+	// Основная сцена или диагностический вид; вызывается внутри основного render pass.
+	void record(VkCommandBuffer command_buffer);
 
 private:
 	// Верхняя граница числа моделей сцены
@@ -54,6 +58,10 @@ private:
 
 	// У каждой модели своя трансформация, анимация и материал; GPU-записи хранятся вместе
 	std::vector<Model> models;
+	std::vector<ShadowMap::Draw> shadow_draws;
+	ShadowMap sun_shadow;
+	glm::mat4 sun_view_projection = glm::mat4(1.0f);
+	bool show_sun_depth = false;
 	double albedo_effect_time = 0.0; // CPU-часы эффекта; время и включение идут только через push constants
 
 	// Layout и пул набора сцены (set 0); set 1 принадлежит каталогу материалов

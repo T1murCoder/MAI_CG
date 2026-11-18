@@ -68,8 +68,8 @@ bool create(const Config& config, VkPipeline& out) {
 	auto& context = graphics::internal::context;
 
 	const VkShaderModule vertex_shader = loadShaderModule(config.vertex_shader);
-	const VkShaderModule fragment_shader = loadShaderModule(config.fragment_shader);
-	if (vertex_shader == VK_NULL_HANDLE || fragment_shader == VK_NULL_HANDLE) {
+	const VkShaderModule fragment_shader = config.fragment_shader ? loadShaderModule(config.fragment_shader) : VK_NULL_HANDLE;
+	if (vertex_shader == VK_NULL_HANDLE || (config.fragment_shader && fragment_shader == VK_NULL_HANDLE)) {
 		vkDestroyShaderModule(context.device, vertex_shader, nullptr);
 		vkDestroyShaderModule(context.device, fragment_shader, nullptr);
 		return false;
@@ -90,16 +90,18 @@ bool create(const Config& config, VkPipeline& out) {
 		},
 	};
 
-	// Формат вершины общий для всех пайплайнов — geometry::Vertex
+	const bool has_vertex_input = config.vertex_input != VertexInput::None;
 	const VkVertexInputBindingDescription binding = geometry::vertexBinding();
 	const auto attributes = geometry::vertexAttributes();
+	const uint32_t attribute_count = config.vertex_input == VertexInput::Mesh ? uint32_t(attributes.size()) :
+		(config.vertex_input == VertexInput::PositionOnly ? 1u : 0u);
 
 	const VkPipelineVertexInputStateCreateInfo vertex_input = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-		.vertexBindingDescriptionCount = 1,
-		.pVertexBindingDescriptions = &binding,
-		.vertexAttributeDescriptionCount = uint32_t(attributes.size()),
-		.pVertexAttributeDescriptions = attributes.data(),
+		.vertexBindingDescriptionCount = has_vertex_input ? 1u : 0u,
+		.pVertexBindingDescriptions = has_vertex_input ? &binding : nullptr,
+		.vertexAttributeDescriptionCount = attribute_count,
+		.pVertexAttributeDescriptions = has_vertex_input ? attributes.data() : nullptr,
 	};
 
 	// Топология примитивов задаётся конфигом: треугольники для мешей, линии для вспомогательной геометрии
@@ -130,10 +132,10 @@ bool create(const Config& config, VkPipeline& out) {
 		.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
 	};
 
-	// Тест глубины включён всегда; запись глубины можно отключить конфигом
+	// Fullscreen-диагностика не использует depth test или запись глубины.
 	const VkPipelineDepthStencilStateCreateInfo depth_stencil = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
-		.depthTestEnable = VK_TRUE,
+		.depthTestEnable = config.depth_test ? VK_TRUE : VK_FALSE,
 		.depthWriteEnable = config.depth_write ? VK_TRUE : VK_FALSE,
 		.depthCompareOp = VK_COMPARE_OP_LESS,
 	};
@@ -146,8 +148,8 @@ bool create(const Config& config, VkPipeline& out) {
 
 	const VkPipelineColorBlendStateCreateInfo color_blend = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-		.attachmentCount = 1,
-		.pAttachments = &color_blend_attachment,
+		.attachmentCount = config.dynamic_depth_format == VK_FORMAT_UNDEFINED ? 1u : 0u,
+		.pAttachments = config.dynamic_depth_format == VK_FORMAT_UNDEFINED ? &color_blend_attachment : nullptr,
 	};
 
 	// Viewport и scissor задаются в command buffer каждый кадр, без пересоздания pipeline (важно при ресайзе окна)
@@ -162,9 +164,14 @@ bool create(const Config& config, VkPipeline& out) {
 		.pDynamicStates = dynamic_states,
 	};
 
+	const VkPipelineRenderingCreateInfo rendering_info = {
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+		.depthAttachmentFormat = config.dynamic_depth_format,
+	};
 	const VkGraphicsPipelineCreateInfo pipeline_info = {
 		.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
-		.stageCount = sizeof(stages) / sizeof(stages[0]),
+		.pNext = config.dynamic_depth_format == VK_FORMAT_UNDEFINED ? nullptr : &rendering_info,
+		.stageCount = config.fragment_shader ? 2u : 1u,
 		.pStages = stages,
 		.pVertexInputState = &vertex_input,
 		.pInputAssemblyState = &input_assembly,
@@ -175,7 +182,7 @@ bool create(const Config& config, VkPipeline& out) {
 		.pColorBlendState = &color_blend,
 		.pDynamicState = &dynamic_state,
 		.layout = config.layout,
-		.renderPass = context.render_pass,
+		.renderPass = config.dynamic_depth_format == VK_FORMAT_UNDEFINED ? context.render_pass : VK_NULL_HANDLE,
 		.subpass = 0,
 	};
 

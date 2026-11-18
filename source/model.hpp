@@ -37,6 +37,7 @@ public:
 
 	// Привязывает меш и рисует его; сцена уже выбрала запись модели через dynamic offset в set 1
 	void draw(VkCommandBuffer command_buffer) const;
+	const Mesh& geometry() const { return *mesh; }
 
 	// Сворачиваемая секция с трансформацией, анимацией и материалом модели в текущем окне ImGui
 	void drawUi(const MaterialCatalog& materials);

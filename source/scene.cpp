@@ -7,6 +7,7 @@
 #include <span>
 
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include <imgui.h>
 
@@ -26,6 +27,18 @@ constexpr VkDescriptorSetLayoutBinding kUniformBinding = {
 	.descriptorCount = 1,
 	.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
 };
+
+glm::mat4 sunViewProjection(glm::vec3 direction) {
+	// Область в мировых координатах не зависит от камеры. Управление покрытием — в фазе 3.
+	const glm::vec3 center(0.0f, 1.0f, -1.0f);
+	const glm::vec3 up = std::abs(direction.y) > 0.99f ? glm::vec3(0.0f, 0.0f, 1.0f) :
+		glm::vec3(0.0f, 1.0f, 0.0f);
+	const glm::mat4 view = glm::lookAt(center - direction * 20.0f, center, up);
+	glm::mat4 projection = glm::ortho(-10.0f, 10.0f, -10.0f, 10.0f, 0.1f, 40.0f);
+	// Те же соглашения, что у камеры: depth [0, 1], положительная высота viewport.
+	projection[1][1] *= -1.0f;
+	return projection * view;
+}
 
 bool isSrgbFormat(VkFormat format) {
 	switch (format) {
@@ -74,7 +87,7 @@ bool createSetLayout(std::span<const VkDescriptorSetLayoutBinding> bindings, VkD
 bool Scene::create() {
 	if (!cube_mesh.create(geometry::makeCube()) || !white_cube_mesh.create(geometry::makeCube(false)) ||
 		!plane_mesh.create(geometry::makePlane()) ||
-		!createModels() || !createDescriptors() || !createPipeline()) {
+		!createModels() || !createDescriptors() || !createPipeline() || !sun_shadow.create()) {
 		// В том числе освобождаем уже созданные ресурсы при частичной ошибке инициализации.
 		destroy();
 		return false;
@@ -86,11 +99,13 @@ bool Scene::create() {
 void Scene::destroy() {
 	auto& context = graphics::internal::context;
 
+	sun_shadow.destroy();
 	light_gizmos.destroy();
 	vkDestroyPipeline(context.device, pipeline, nullptr);
 	vkDestroyPipelineLayout(context.device, pipeline_layout, nullptr);
 
 	models.clear();
+	shadow_draws.clear();
 	materials.destroy();
 
 	lighting.destroy();
@@ -120,6 +135,14 @@ void Scene::update(double dt) {
 void Scene::drawUi() {
 	ImGui::Begin("Scene");
 
+	if (ImGui::CollapsingHeader("Shadow Mapping", ImGuiTreeNodeFlags_DefaultOpen)) {
+		ImGui::Checkbox("Show sun depth map", &show_sun_depth);
+		ImGui::Text("Sun depth: %u x %u", ShadowMap::kResolution, ShadowMap::kResolution);
+		if (show_sun_depth) {
+			ImGui::TextWrapped("Black: near; white: far / empty. Change Directional Light > Direction or a model's transform to inspect the map.");
+		}
+	}
+
 	camera.drawUi();
 	lighting.drawUi();
 	light_gizmos.drawUi();
@@ -133,24 +156,37 @@ void Scene::drawUi() {
 
 // Единственное место, где можно писать в GPU-буферы (memcpy, пересоздание storage-буферов,
 // vkUpdateDescriptorSets): prepare() уже дождался завершения предыдущего кадра, а набор сцены
-// в этом кадре ещё не привязан. В update() этого делать нельзя — он выполняется до ожидания fence
-void Scene::record(VkCommandBuffer command_buffer, float aspect) {
+// в этом кадре ещё не привязан. В update() этого делать нельзя — он выполняется до ожидания fence.
+bool Scene::prepareFrame(float aspect) {
 	SceneUniforms scene_uniforms = {};
 	camera.fill(scene_uniforms, aspect);
 	lighting.upload(scene_uniforms);
+	// Используем уже нормализованное направление из того же снимка, что читает lit.frag.
+	sun_view_projection = sunViewProjection(glm::vec3(scene_uniforms.light_direction));
 	// Проверяем реальный формат каждый кадр, в том числе после пересоздания swapchain.
 	scene_uniforms.tone_mapping.z = isSrgbFormat(graphics::internal::context.swapchain_format) ? 0.0f : 1.0f;
 	std::memcpy(scene_uniform_buffer.mapped, &scene_uniforms, sizeof(scene_uniforms));
 	if (!vk_buffer::flush(scene_uniform_buffer)) {
-		return;
+		return false;
 	}
 
+	shadow_draws.clear();
 	for (size_t i = 0; i < models.size(); ++i) {
 		const ModelUniforms uniforms = models[i].uniforms();
+		shadow_draws.push_back({ .mesh = &models[i].geometry(), .model = uniforms.model });
 		auto* destination = static_cast<std::byte*>(model_uniform_buffer.mapped) + i * model_uniform_stride;
 		std::memcpy(destination, &uniforms, sizeof(uniforms));
 	}
-	if (!vk_buffer::flush(model_uniform_buffer)) {
+	return vk_buffer::flush(model_uniform_buffer);
+}
+
+void Scene::recordShadowMap(VkCommandBuffer command_buffer) {
+	sun_shadow.record(command_buffer, sun_view_projection, shadow_draws);
+}
+
+void Scene::record(VkCommandBuffer command_buffer) {
+	if (show_sun_depth) {
+		sun_shadow.recordDebug(command_buffer, graphics::internal::context.swapchain_extent);
 		return;
 	}
 
@@ -361,6 +397,7 @@ bool Scene::createModels() {
 		std::cerr << "Too many models in scene: " << models.size() << " > " << kMaxModels << '\n';
 		return false;
 	}
+	shadow_draws.reserve(models.size());
 
 	return true;
 }

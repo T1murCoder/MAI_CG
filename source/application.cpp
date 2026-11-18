@@ -38,15 +38,20 @@ void update(double time) {
 	scene.drawUi();
 }
 
-// Записывает команды отрисовки кадра: начинает render pass, задаёт viewport и отдаёт отрисовку сцене
+// Подготавливает данные после fence, записывает карту глубины и основной render pass.
 void render(const graphics::internal::FrameData& fd) {
 	auto& context = graphics::internal::context;
+	const float aspect = float(context.swapchain_extent.width) / float(context.swapchain_extent.height);
+	const bool scene_ready = scene.prepareFrame(aspect);
 
 	// Command buffer нужно начинать и завершать заново каждый кадр — фреймворк это не делает сам
 	const VkCommandBufferBeginInfo begin_info = {
 		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
 	};
 	vkBeginCommandBuffer(fd.command_buffer, &begin_info);
+	if (scene_ready) {
+		scene.recordShadowMap(fd.command_buffer);
+	}
 
 	// Цвет очистки фона и значение очистки буфера глубины (1.0 — максимально далеко)
 	const VkClearValue clear_values[] = {
@@ -79,9 +84,9 @@ void render(const graphics::internal::FrameData& fd) {
 	const VkRect2D scissor = { .extent = context.swapchain_extent };
 	vkCmdSetScissor(fd.command_buffer, 0, 1, &scissor);
 
-	// Соотношение сторон пересчитывается каждый кадр — окно может быть изменено в размере
-	const float aspect = float(context.swapchain_extent.width) / float(context.swapchain_extent.height);
-	scene.record(fd.command_buffer, aspect);
+	if (scene_ready) {
+		scene.record(fd.command_buffer);
+	}
 
 	vkCmdEndRenderPass(fd.command_buffer);
 
