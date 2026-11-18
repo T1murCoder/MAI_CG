@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <vector>
 
 #include <vulkan/vulkan_core.h>
@@ -79,11 +80,14 @@ public:
 	// Записывает рассеянный и направленный свет в uniform-данные сцены, загружает массивы точечных
 	// источников и прожекторов в storage-буферы и записывает их число. Вызывать после ожидания fence
 	// кадра и до привязки набора сцены (см. StorageArray::upload)
-	void upload(shader::SceneUniforms& uniforms);
+	// Возвращает выбранный прожектор из того же снимка, который загружен в SSBO.
+	std::optional<shader::SpotLight> upload(shader::SceneUniforms& uniforms);
 
 	// Секции всех источников света в текущем окне ImGui; точечные источники и прожекторы
 	// можно добавлять и удалять
 	void drawUi();
+	void drawShadowSpotUi();
+	int shadowSpotIndex() const { return shadow_spot_index; }
 
 	// Текущие источники — для их визуализации
 	const std::vector<PointLight>& pointLights() const;
@@ -92,6 +96,7 @@ public:
 private:
 	AmbientLight ambient;
 	DirectionalLight directional;
+	int shadow_spot_index = -1;
 
 	// Стартовые точечные источники: тёплый свет рядом с кубами и розовый, кружащий вокруг них по орбите
 	// выше верхних граней кубов (на их уровне свет падал бы на верх кубов вскользь)

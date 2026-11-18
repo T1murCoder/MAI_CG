@@ -7,7 +7,7 @@
 // Структуры, которые копируются в буферы GPU. Это контракт с шейдерами: раскладка каждой структуры
 // должна совпадать с одноимённым блоком в shaders/common.glsl (uniform-блоки),
 // shaders/lighting.glsl (элементы массивов источников света), shaders/gizmo.glsl
-// и shaders/lit.frag, shaders/shadow.vert (push constants).
+// и shaders/lit.frag, shaders/shadow.vert, shaders/depth_debug.frag (push constants).
 // Uniform-буферы используют раскладку std140, storage-буферы — std430: в обеих vec3 выровнен
 // по 16 байтам, а в C++ занимает 12, поэтому в структурах только vec4/uvec4/mat4;
 // static_assert ловит расхождение размеров при компиляции
@@ -18,6 +18,11 @@ struct ShadowPushConstants {
 	glm::mat4 light_model;
 };
 static_assert(sizeof(ShadowPushConstants) == 64);
+
+struct DepthDebugPushConstants {
+	glm::vec4 depth_range; // xy — near/far, z — 1 для перспективной карты, w не используется
+};
+static_assert(sizeof(DepthDebugPushConstants) == 16);
 
 // Общие для всех моделей данные сцены (set 0, binding 0)
 struct SceneUniforms {

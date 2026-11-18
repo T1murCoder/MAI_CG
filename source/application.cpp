@@ -50,7 +50,7 @@ void render(const graphics::internal::FrameData& fd) {
 	};
 	vkBeginCommandBuffer(fd.command_buffer, &begin_info);
 	if (scene_ready) {
-		scene.recordShadowMap(fd.command_buffer);
+		scene.recordShadowMaps(fd.command_buffer);
 	}
 
 	// Цвет очистки фона и значение очистки буфера глубины (1.0 — максимально далеко)

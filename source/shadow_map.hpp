@@ -28,6 +28,12 @@ public:
 		void sanitize();
 	};
 
+	struct DebugView {
+		float near_plane = 0.1f;
+		float far_plane = 40.0f;
+		bool perspective = false;
+	};
+
 	ShadowMap() = default;
 	ShadowMap(const ShadowMap&) = delete;
 	ShadowMap& operator=(const ShadowMap&) = delete;
@@ -41,8 +47,8 @@ public:
 	// Записывает геометрию без материалов и переводит карту в состояние для чтения шейдером.
 	void record(VkCommandBuffer command_buffer, const glm::mat4& light_view_projection,
 				std::span<const Draw> draws, DepthBias bias);
-	// Показывает карту квадратом по центру окна, не растягивая её при ресайзе.
-	void recordDebug(VkCommandBuffer command_buffer, VkExtent2D window_extent) const;
+	// Показывает карту квадратом; перспективная глубина линеаризуется для просмотра.
+	void recordDebug(VkCommandBuffer command_buffer, VkExtent2D window_extent, DebugView depth) const;
 
 private:
 	bool createImage();

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <string>
 
 #include <imgui.h>
 
@@ -10,7 +11,7 @@ namespace {
 // Список источников одного типа: кнопка добавления и по ветке дерева на каждый источник с кнопкой
 // удаления. Удаление откладывается до конца цикла, чтобы не менять вектор во время обхода
 template <typename Light>
-void drawLightList(const char* title, const char* item_label, std::vector<Light>& lights) {
+int drawLightList(const char* title, const char* item_label, std::vector<Light>& lights) {
 	ImGui::PushID(title);
 	ImGui::SeparatorText(title);
 	if (ImGui::Button("Add")) {
@@ -34,6 +35,7 @@ void drawLightList(const char* title, const char* item_label, std::vector<Light>
 		lights.erase(lights.begin() + remove_index);
 	}
 	ImGui::PopID();
+	return remove_index;
 }
 
 } // namespace
@@ -88,15 +90,18 @@ glm::vec3 SpotLight::worldDirection() const {
 // поэтому outer >= inner всегда и мягкий край не «выворачивается»
 void SpotLight::drawUi() {
 	ImGui::DragFloat3("Position", &position.x, 0.02f);
-	ImGui::SliderFloat3("Direction", &direction.x, -1.0f, 1.0f);
+	ImGui::SliderFloat3("Direction", &direction.x, -1.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
 	ImGui::ColorEdit3("Color", &color.x);
 	ImGui::SliderFloat("Intensity", &intensity, 0.0f, 100.0f);
-	if (ImGui::SliderFloat("Inner Angle", &inner_degrees, 1.0f, 89.0f)) {
+	if (ImGui::SliderFloat("Inner Angle", &inner_degrees, 1.0f, 89.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp)) {
 		outer_degrees = std::max(outer_degrees, inner_degrees);
 	}
-	if (ImGui::SliderFloat("Outer Angle", &outer_degrees, 1.0f, 89.0f)) {
+	if (ImGui::SliderFloat("Outer Angle", &outer_degrees, 1.0f, 89.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp)) {
 		inner_degrees = std::min(inner_degrees, outer_degrees);
 	}
+	outer_degrees = std::isfinite(outer_degrees) ? std::clamp(outer_degrees, 1.0f, 89.0f) : 25.0f;
+	inner_degrees = std::isfinite(inner_degrees) ? std::clamp(inner_degrees, 1.0f, outer_degrees) :
+		std::min(15.0f, outer_degrees);
 	animation.drawUi();
 }
 
@@ -121,7 +126,7 @@ void Lighting::update(double dt) {
 
 // Источники упаковываются в формат GPU (vec3 → vec4, углы → косинусы); шейдеру сообщается,
 // сколько источников реально загружено
-void Lighting::upload(shader::SceneUniforms& uniforms) {
+std::optional<shader::SpotLight> Lighting::upload(shader::SceneUniforms& uniforms) {
 	uniforms.ambient = glm::vec4(ambient.color, ambient.intensity);
 	uniforms.light_direction =
 		glm::vec4(normalizeDirection(directional.direction), directional.enabled ? 1.0f : 0.0f);
@@ -152,13 +157,47 @@ void Lighting::upload(shader::SceneUniforms& uniforms) {
 		point_light_buffer.upload(gpu_point_lights.data(), uint32_t(gpu_point_lights.size()));
 	uniforms.light_counts.y =
 		spot_light_buffer.upload(gpu_spot_lights.data(), uint32_t(gpu_spot_lights.size()));
+	if (shadow_spot_index >= 0 && uint32_t(shadow_spot_index) < uniforms.light_counts.y) {
+		return gpu_spot_lights[size_t(shadow_spot_index)];
+	}
+	return std::nullopt;
 }
 
 void Lighting::drawUi() {
 	ambient.drawUi();
 	directional.drawUi();
 	drawLightList("Point Lights", "Point Light", point_lights);
-	drawLightList("Spot Lights", "Spot Light", spot_lights);
+	const int removed = drawLightList("Spot Lights", "Spot Light", spot_lights);
+	if (removed >= 0) {
+		if (removed == shadow_spot_index) {
+			shadow_spot_index = -1;
+		} else if (removed < shadow_spot_index) {
+			--shadow_spot_index;
+		}
+	}
+}
+
+void Lighting::drawShadowSpotUi() {
+	const std::string preview = shadow_spot_index >= 0 ? "Spot Light " + std::to_string(shadow_spot_index) : "None";
+	if (ImGui::BeginCombo("Shadow spotlight", preview.c_str())) {
+		if (ImGui::Selectable("None", shadow_spot_index < 0)) {
+			shadow_spot_index = -1;
+		}
+		for (size_t i = 0; i < spot_lights.size(); ++i) {
+			const bool selected = shadow_spot_index == int(i);
+			const std::string label = "Spot Light " + std::to_string(i);
+			if (ImGui::Selectable(label.c_str(), selected)) {
+				shadow_spot_index = int(i);
+			}
+			if (selected) {
+				ImGui::SetItemDefaultFocus();
+			}
+		}
+		ImGui::EndCombo();
+	}
+	if (spot_lights.empty()) {
+		ImGui::TextWrapped("No spotlights. Add one in the Spot Lights section.");
+	}
 }
 
 const std::vector<PointLight>& Lighting::pointLights() const {

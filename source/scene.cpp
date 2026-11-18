@@ -83,7 +83,8 @@ bool createSetLayout(std::span<const VkDescriptorSetLayoutBinding> bindings, VkD
 bool Scene::create() {
 	if (!cube_mesh.create(geometry::makeCube()) || !white_cube_mesh.create(geometry::makeCube(false)) ||
 		!plane_mesh.create(geometry::makePlane()) ||
-		!createModels() || !sun_shadow_map.create() || !createDescriptors() || !createPipeline()) {
+		!createModels() || !sun_shadow_map.create() || !spot_shadow_map.create() ||
+		!createDescriptors() || !createPipeline()) {
 		// В том числе освобождаем уже созданные ресурсы при частичной ошибке инициализации.
 		destroy();
 		return false;
@@ -110,6 +111,8 @@ void Scene::destroy() {
 	vkDestroyDescriptorPool(context.device, descriptor_pool, nullptr);
 	vkDestroyDescriptorSetLayout(context.device, scene_set_layout, nullptr);
 	sun_shadow_map.destroy();
+	spot_shadow_map.destroy();
+	spot_projection.reset();
 
 	plane_mesh.destroy();
 	white_cube_mesh.destroy();
@@ -134,6 +137,9 @@ void Scene::drawUi() {
 	drawShadowUi();
 	camera.drawUi();
 	lighting.drawUi();
+	if (lighting.shadowSpotIndex() < 0 && view == View::SpotDepth) {
+		view = View::Scene;
+	}
 	light_gizmos.drawUi();
 
 	for (Model& model : models) {
@@ -154,10 +160,34 @@ void Scene::drawShadowUi() {
 	if (isolate_sun) {
 		ImGui::TextWrapped("Ambient, point and spot lighting are hidden. Their settings are preserved; emissive materials remain visible.");
 	}
-	ImGui::Checkbox("Show sun depth map", &show_sun_depth);
+	lighting.drawShadowSpotUi();
+	if (lighting.shadowSpotIndex() < 0 && view == View::SpotDepth) {
+		view = View::Scene;
+	}
+	const char* views[] = { "Scene", "Sun depth", "Spotlight depth" };
+	if (ImGui::BeginCombo("View", views[int(view)])) {
+		for (int i = 0; i < int(std::size(views)); ++i) {
+			const bool selected = view == View(i);
+			ImGui::BeginDisabled(View(i) == View::SpotDepth && lighting.shadowSpotIndex() < 0);
+			if (ImGui::Selectable(views[i], selected)) {
+				view = View(i);
+			}
+			if (selected) {
+				ImGui::SetItemDefaultFocus();
+			}
+			ImGui::EndDisabled();
+		}
+		ImGui::EndCombo();
+	}
 	ImGui::Text("Sun depth: %u x %u", ShadowMap::kResolution, ShadowMap::kResolution);
-	if (show_sun_depth) {
+	if (view == View::SunDepth) {
 		ImGui::TextWrapped("Black: near; white: far / empty. Change the sun area, light direction or a model's transform to inspect the map.");
+	} else if (view == View::SpotDepth) {
+		ImGui::TextWrapped("Linear depth: black = near, white = far / empty. Edit the selected Spot Light's position, direction, outer angle or animation.");
+	}
+	if (lighting.shadowSpotIndex() >= 0 && spot_projection) {
+		ImGui::Text("Spot depth: %u x %u | %.2f .. %.2f", ShadowMap::kResolution, ShadowMap::kResolution,
+			spot_projection->near_plane, spot_projection->far_plane);
 	}
 
 	ImGui::SeparatorText("Sun coverage");
@@ -188,7 +218,7 @@ void Scene::drawShadowUi() {
 bool Scene::prepareFrame(float aspect) {
 	SceneUniforms scene_uniforms = {};
 	camera.fill(scene_uniforms, aspect);
-	lighting.upload(scene_uniforms);
+	const auto selected_spot = lighting.upload(scene_uniforms);
 
 	std::array<glm::vec3, kMaxModels * 8> world_bounds;
 	size_t bound_count = 0;
@@ -205,6 +235,10 @@ bool Scene::prepareFrame(float aspect) {
 	// Направление и границы взяты из того же снимка кадра, который используют оба прохода.
 	sun_projection = sun_shadow::fit(sun_area, glm::vec3(scene_uniforms.light_direction),
 		{ world_bounds.data(), bound_count });
+	spot_projection = selected_spot ? spot_shadow::fit(*selected_spot, { world_bounds.data(), bound_count }) : std::nullopt;
+	if (!spot_projection && view == View::SpotDepth) {
+		view = View::Scene;
+	}
 	scene_uniforms.sun_view_projection = sun_projection.view_projection;
 	scene_uniforms.shadow_settings = glm::uvec4(sun_shadows_enabled ? 1u : 0u, isolate_sun ? 1u : 0u, 0u, 0u);
 	// Проверяем реальный формат каждый кадр, в том числе после пересоздания swapchain.
@@ -213,13 +247,24 @@ bool Scene::prepareFrame(float aspect) {
 	return vk_buffer::flush(scene_uniform_buffer) && vk_buffer::flush(model_uniform_buffer);
 }
 
-void Scene::recordShadowMap(VkCommandBuffer command_buffer) {
+void Scene::recordShadowMaps(VkCommandBuffer command_buffer) {
 	sun_shadow_map.record(command_buffer, sun_projection.view_projection, shadow_draws, sun_bias);
+	if (spot_projection) {
+		spot_shadow_map.record(command_buffer, spot_projection->view_projection, shadow_draws, spot_bias);
+	}
 }
 
 void Scene::record(VkCommandBuffer command_buffer) {
-	if (show_sun_depth) {
-		sun_shadow_map.recordDebug(command_buffer, graphics::internal::context.swapchain_extent);
+	if (view == View::SunDepth) {
+		sun_shadow_map.recordDebug(command_buffer, graphics::internal::context.swapchain_extent, {});
+		return;
+	}
+	if (view == View::SpotDepth && spot_projection) {
+		spot_shadow_map.recordDebug(command_buffer, graphics::internal::context.swapchain_extent, {
+			.near_plane = float(spot_projection->near_plane),
+			.far_plane = float(spot_projection->far_plane),
+			.perspective = true,
+		});
 		return;
 	}
 

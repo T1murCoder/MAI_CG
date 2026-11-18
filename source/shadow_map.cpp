@@ -219,7 +219,11 @@ bool ShadowMap::createPipelines() {
 		}, pipeline)) {
 		return false;
 	}
-	return pipeline::createLayout({ &debug_set_layout, 1 }, {}, debug_pipeline_layout) &&
+	const VkPushConstantRange debug_push_range = {
+		.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+		.size = sizeof(shader::DepthDebugPushConstants),
+	};
+	return pipeline::createLayout({ &debug_set_layout, 1 }, { &debug_push_range, 1 }, debug_pipeline_layout) &&
 		pipeline::create({
 			.vertex_shader = "depth_debug.vert.spv",
 			.fragment_shader = "depth_debug.frag.spv",
@@ -292,7 +296,7 @@ void ShadowMap::record(VkCommandBuffer command_buffer, const glm::mat4& light_vi
 	readable = true;
 }
 
-void ShadowMap::recordDebug(VkCommandBuffer command_buffer, VkExtent2D window_extent) const {
+void ShadowMap::recordDebug(VkCommandBuffer command_buffer, VkExtent2D window_extent, DebugView depth) const {
 	const uint32_t side = std::min(window_extent.width, window_extent.height);
 	if (side == 0) {
 		return;
@@ -310,5 +314,9 @@ void ShadowMap::recordDebug(VkCommandBuffer command_buffer, VkExtent2D window_ex
 	vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, debug_pipeline);
 	vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, debug_pipeline_layout,
 		0, 1, &debug_set, 0, nullptr);
+	const shader::DepthDebugPushConstants push = {
+		.depth_range = glm::vec4(depth.near_plane, depth.far_plane, depth.perspective ? 1.0f : 0.0f, 0.0f),
+	};
+	vkCmdPushConstants(command_buffer, debug_pipeline_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
 	vkCmdDraw(command_buffer, 3, 1, 0, 0);
 }

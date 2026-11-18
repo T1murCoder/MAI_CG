@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 #include <vulkan/vulkan_core.h>
@@ -11,6 +12,7 @@
 #include "mesh.hpp"
 #include "model.hpp"
 #include "shadow_map.hpp"
+#include "spot_shadow.hpp"
 #include "sun_shadow.hpp"
 #include "vk_buffer.hpp"
 
@@ -18,7 +20,7 @@
 // В шейдерах set 0 — данные сцены, set 1 — материал и общий dynamic UBO моделей
 class Scene {
 public:
-	// Создаёт меши и модели, карту солнца, дескрипторы (включая storage-буферы света),
+	// Создаёт меши и модели, карты глубины, дескрипторы (включая storage-буферы света),
 	// pipeline моделей и пайплайны визуализации источников.
 	bool create();
 
@@ -34,13 +36,14 @@ public:
 	// Снимок данных кадра и загрузка GPU-буферов: после ожидания fence, до любых проходов.
 	bool prepareFrame(float aspect);
 	// Записывает Dynamic Rendering вне основного render pass, используя данные prepareFrame().
-	void recordShadowMap(VkCommandBuffer command_buffer);
+	void recordShadowMaps(VkCommandBuffer command_buffer);
 	// Основная сцена или диагностический вид; вызывается внутри основного render pass.
 	void record(VkCommandBuffer command_buffer);
 
 private:
 	// Верхняя граница числа моделей сцены
 	static constexpr uint32_t kMaxModels = 32;
+	enum class View { Scene, SunDepth, SpotDepth };
 
 	bool createDescriptors();
 	bool createModels();
@@ -62,10 +65,13 @@ private:
 	std::vector<Model> models;
 	std::vector<ShadowMap::Draw> shadow_draws;
 	ShadowMap sun_shadow_map;
+	ShadowMap spot_shadow_map;
 	sun_shadow::Area sun_area;
 	sun_shadow::Projection sun_projection;
 	ShadowMap::DepthBias sun_bias;
-	bool show_sun_depth = false;
+	ShadowMap::DepthBias spot_bias;
+	std::optional<spot_shadow::Projection> spot_projection;
+	View view = View::Scene;
 	bool sun_shadows_enabled = true;
 	bool isolate_sun = false;
 	double albedo_effect_time = 0.0; // CPU-часы эффекта; время и включение идут только через push constants
