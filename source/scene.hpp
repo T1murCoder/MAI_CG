@@ -11,6 +11,7 @@
 #include "mesh.hpp"
 #include "model.hpp"
 #include "shadow_map.hpp"
+#include "sun_shadow.hpp"
 #include "vk_buffer.hpp"
 
 // Сцена: камера, источники света, меши, модели и общие для них Vulkan-ресурсы (дескрипторы, pipeline).
@@ -44,6 +45,7 @@ private:
 	bool createDescriptors();
 	bool createModels();
 	bool createPipeline();
+	void drawShadowUi();
 
 	Camera camera;
 	Lighting lighting;
@@ -59,8 +61,10 @@ private:
 	// У каждой модели своя трансформация, анимация и материал; GPU-записи хранятся вместе
 	std::vector<Model> models;
 	std::vector<ShadowMap::Draw> shadow_draws;
-	ShadowMap sun_shadow;
-	glm::mat4 sun_view_projection = glm::mat4(1.0f);
+	ShadowMap sun_shadow_map;
+	sun_shadow::Area sun_area;
+	sun_shadow::Projection sun_projection;
+	ShadowMap::DepthBias sun_bias;
 	bool show_sun_depth = false;
 	bool sun_shadows_enabled = true;
 	bool isolate_sun = false;

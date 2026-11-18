@@ -1,6 +1,7 @@
 #include "shadow_map.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <iostream>
 
 #include "graphics_internal.hpp"
@@ -19,6 +20,11 @@ constexpr VkImageUsageFlags kImageUsage =
 	VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 
 } // namespace
+
+void ShadowMap::DepthBias::sanitize() {
+	constant = std::isfinite(constant) ? std::clamp(constant, 0.0f, kMaxConstant) : 2.0f;
+	slope = std::isfinite(slope) ? std::clamp(slope, 0.0f, kMaxSlope) : 1.5f;
+}
 
 bool ShadowMap::create() {
 	if (!createImage() || !createSamplers() || !createDebugDescriptors() || !createPipelines()) {
@@ -226,7 +232,7 @@ bool ShadowMap::createPipelines() {
 }
 
 void ShadowMap::record(VkCommandBuffer command_buffer, const glm::mat4& light_view_projection,
-					   std::span<const Draw> draws) {
+					   std::span<const Draw> draws, DepthBias bias) {
 	VkImageMemoryBarrier barrier = {
 		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
 		.srcAccessMask = readable ? VkAccessFlags(VK_ACCESS_SHADER_READ_BIT) : 0u,
@@ -266,8 +272,9 @@ void ShadowMap::record(VkCommandBuffer command_buffer, const glm::mat4& light_vi
 	vkCmdSetViewport(command_buffer, 0, 1, &viewport);
 	vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 	vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-	// Начальные параметры против самозатенения. Их управление через ImGui — в фазе 3.
-	vkCmdSetDepthBias(command_buffer, 2.0f, 0.0f, 1.5f);
+	bias.sanitize();
+	// Ненулевой clamp требует отдельной возможности устройства; используем 0.
+	vkCmdSetDepthBias(command_buffer, bias.constant, 0.0f, bias.slope);
 	for (const Draw& draw : draws) {
 		const shader::ShadowPushConstants push = { .light_model = light_view_projection * draw.model };
 		vkCmdPushConstants(command_buffer, pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push), &push);
@@ -287,6 +294,9 @@ void ShadowMap::record(VkCommandBuffer command_buffer, const glm::mat4& light_vi
 
 void ShadowMap::recordDebug(VkCommandBuffer command_buffer, VkExtent2D window_extent) const {
 	const uint32_t side = std::min(window_extent.width, window_extent.height);
+	if (side == 0) {
+		return;
+	}
 	const VkRect2D square = {
 		.offset = { int32_t((window_extent.width - side) / 2), int32_t((window_extent.height - side) / 2) },
 		.extent = { side, side },

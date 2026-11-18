@@ -3,6 +3,9 @@
 #include <span>
 
 bool Mesh::create(const geometry::MeshData& data) {
+	if (data.vertices.empty()) {
+		return false;
+	}
 	if (!vk_buffer::createDeviceLocal(std::as_bytes(std::span(data.vertices)),
 									  VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertex_buffer)) {
 		return false;
@@ -14,6 +17,16 @@ bool Mesh::create(const geometry::MeshData& data) {
 	}
 
 	index_count = uint32_t(data.indices.size());
+	glm::vec3 minimum = data.vertices.front().position;
+	glm::vec3 maximum = minimum;
+	for (const geometry::Vertex& vertex : data.vertices) {
+		minimum = glm::min(minimum, vertex.position);
+		maximum = glm::max(maximum, vertex.position);
+	}
+	for (size_t i = 0; i < local_bounds.size(); ++i) {
+		local_bounds[i] = glm::vec3((i & 1) ? maximum.x : minimum.x,
+			(i & 2) ? maximum.y : minimum.y, (i & 4) ? maximum.z : minimum.z);
+	}
 	return true;
 }
 

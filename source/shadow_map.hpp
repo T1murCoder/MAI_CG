@@ -19,6 +19,15 @@ public:
 		glm::mat4 model;
 	};
 
+	struct DepthBias {
+		static constexpr float kMaxConstant = 16.0f;
+		static constexpr float kMaxSlope = 8.0f;
+		float constant = 2.0f;
+		float slope = 1.5f;
+
+		void sanitize();
+	};
+
 	ShadowMap() = default;
 	ShadowMap(const ShadowMap&) = delete;
 	ShadowMap& operator=(const ShadowMap&) = delete;
@@ -31,7 +40,7 @@ public:
 
 	// Записывает геометрию без материалов и переводит карту в состояние для чтения шейдером.
 	void record(VkCommandBuffer command_buffer, const glm::mat4& light_view_projection,
-				std::span<const Draw> draws);
+				std::span<const Draw> draws, DepthBias bias);
 	// Показывает карту квадратом по центру окна, не растягивая её при ресайзе.
 	void recordDebug(VkCommandBuffer command_buffer, VkExtent2D window_extent) const;
 

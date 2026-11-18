@@ -1,5 +1,6 @@
 #include "scene.hpp"
 
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <iostream>
@@ -8,7 +9,6 @@
 #include <span>
 
 #include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
 
 #include <imgui.h>
 
@@ -35,18 +35,6 @@ constexpr VkDescriptorSetLayoutBinding kSunShadowBinding = {
 	.descriptorCount = 1,
 	.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
 };
-
-glm::mat4 sunViewProjection(glm::vec3 direction) {
-	// Область в мировых координатах не зависит от камеры. Управление покрытием — в фазе 3.
-	const glm::vec3 center(0.0f, 1.0f, -1.0f);
-	const glm::vec3 up = std::abs(direction.y) > 0.99f ? glm::vec3(0.0f, 0.0f, 1.0f) :
-		glm::vec3(0.0f, 1.0f, 0.0f);
-	const glm::mat4 view = glm::lookAt(center - direction * 20.0f, center, up);
-	glm::mat4 projection = glm::ortho(-10.0f, 10.0f, -10.0f, 10.0f, 0.1f, 40.0f);
-	// Те же соглашения, что у камеры: depth [0, 1], положительная высота viewport.
-	projection[1][1] *= -1.0f;
-	return projection * view;
-}
 
 bool isSrgbFormat(VkFormat format) {
 	switch (format) {
@@ -95,7 +83,7 @@ bool createSetLayout(std::span<const VkDescriptorSetLayoutBinding> bindings, VkD
 bool Scene::create() {
 	if (!cube_mesh.create(geometry::makeCube()) || !white_cube_mesh.create(geometry::makeCube(false)) ||
 		!plane_mesh.create(geometry::makePlane()) ||
-		!createModels() || !sun_shadow.create() || !createDescriptors() || !createPipeline()) {
+		!createModels() || !sun_shadow_map.create() || !createDescriptors() || !createPipeline()) {
 		// В том числе освобождаем уже созданные ресурсы при частичной ошибке инициализации.
 		destroy();
 		return false;
@@ -121,7 +109,7 @@ void Scene::destroy() {
 
 	vkDestroyDescriptorPool(context.device, descriptor_pool, nullptr);
 	vkDestroyDescriptorSetLayout(context.device, scene_set_layout, nullptr);
-	sun_shadow.destroy();
+	sun_shadow_map.destroy();
 
 	plane_mesh.destroy();
 	white_cube_mesh.destroy();
@@ -143,19 +131,7 @@ void Scene::update(double dt) {
 void Scene::drawUi() {
 	ImGui::Begin("Scene");
 
-	if (ImGui::CollapsingHeader("Shadow Mapping", ImGuiTreeNodeFlags_DefaultOpen)) {
-		ImGui::Checkbox("Sun shadows", &sun_shadows_enabled);
-		ImGui::Checkbox("Isolate sun", &isolate_sun);
-		if (isolate_sun) {
-			ImGui::TextWrapped("Ambient, point and spot lighting are hidden. Their settings are preserved; emissive materials remain visible.");
-		}
-		ImGui::Checkbox("Show sun depth map", &show_sun_depth);
-		ImGui::Text("Sun depth: %u x %u", ShadowMap::kResolution, ShadowMap::kResolution);
-		if (show_sun_depth) {
-			ImGui::TextWrapped("Black: near; white: far / empty. Change Directional Light > Direction or a model's transform to inspect the map.");
-		}
-	}
-
+	drawShadowUi();
 	camera.drawUi();
 	lighting.drawUi();
 	light_gizmos.drawUi();
@@ -167,6 +143,45 @@ void Scene::drawUi() {
 	ImGui::End();
 }
 
+void Scene::drawShadowUi() {
+	if (!ImGui::CollapsingHeader("Shadow Mapping", ImGuiTreeNodeFlags_DefaultOpen)) {
+		return;
+	}
+	const float fps = ImGui::GetIO().Framerate;
+	ImGui::Text("Frame (with VSync): %.2f ms | %.1f FPS", fps > 0.0f ? 1000.0f / fps : 0.0f, fps);
+	ImGui::Checkbox("Sun shadows", &sun_shadows_enabled);
+	ImGui::Checkbox("Isolate sun", &isolate_sun);
+	if (isolate_sun) {
+		ImGui::TextWrapped("Ambient, point and spot lighting are hidden. Their settings are preserved; emissive materials remain visible.");
+	}
+	ImGui::Checkbox("Show sun depth map", &show_sun_depth);
+	ImGui::Text("Sun depth: %u x %u", ShadowMap::kResolution, ShadowMap::kResolution);
+	if (show_sun_depth) {
+		ImGui::TextWrapped("Black: near; white: far / empty. Change the sun area, light direction or a model's transform to inspect the map.");
+	}
+
+	ImGui::SeparatorText("Sun coverage");
+	ImGui::DragFloat3("Sun area center", &sun_area.center.x, 0.1f,
+		-sun_shadow::Area::kMaxCenter, sun_shadow::Area::kMaxCenter, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+	ImGui::SliderFloat("Sun area size", &sun_area.size, sun_shadow::Area::kMinSize,
+		sun_shadow::Area::kMaxSize, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+
+	ImGui::SeparatorText("Sun depth bias");
+	ImGui::SliderFloat("Constant factor", &sun_bias.constant, 0.0f,
+		ShadowMap::DepthBias::kMaxConstant, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+	ImGui::SliderFloat("Slope factor", &sun_bias.slope, 0.0f,
+		ShadowMap::DepthBias::kMaxSlope, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+	ImGui::TextWrapped("Increase bias to reduce surface speckles. Too much bias detaches shadows from objects.");
+	if (ImGui::Button("Reset sun area and bias")) {
+		sun_area = {};
+		sun_bias = {};
+	}
+	sun_area.sanitize();
+	sun_bias.sanitize();
+	ImGui::Text("World units / texel: %.4f", sun_area.size / ShadowMap::kResolution);
+	ImGui::Text("Auto depth range: %.2f .. %.2f", sun_projection.near_plane, sun_projection.far_plane);
+}
+
 // Единственное место, где можно писать в GPU-буферы (memcpy, пересоздание storage-буферов,
 // vkUpdateDescriptorSets): prepare() уже дождался завершения предыдущего кадра, а набор сцены
 // в этом кадре ещё не привязан. В update() этого делать нельзя — он выполняется до ожидания fence.
@@ -174,34 +189,37 @@ bool Scene::prepareFrame(float aspect) {
 	SceneUniforms scene_uniforms = {};
 	camera.fill(scene_uniforms, aspect);
 	lighting.upload(scene_uniforms);
-	// Используем уже нормализованное направление из того же снимка, что читает lit.frag.
-	sun_view_projection = sunViewProjection(glm::vec3(scene_uniforms.light_direction));
-	scene_uniforms.sun_view_projection = sun_view_projection;
-	scene_uniforms.shadow_settings = glm::uvec4(sun_shadows_enabled ? 1u : 0u, isolate_sun ? 1u : 0u, 0u, 0u);
-	// Проверяем реальный формат каждый кадр, в том числе после пересоздания swapchain.
-	scene_uniforms.tone_mapping.z = isSrgbFormat(graphics::internal::context.swapchain_format) ? 0.0f : 1.0f;
-	std::memcpy(scene_uniform_buffer.mapped, &scene_uniforms, sizeof(scene_uniforms));
-	if (!vk_buffer::flush(scene_uniform_buffer)) {
-		return false;
-	}
 
+	std::array<glm::vec3, kMaxModels * 8> world_bounds;
+	size_t bound_count = 0;
 	shadow_draws.clear();
 	for (size_t i = 0; i < models.size(); ++i) {
 		const ModelUniforms uniforms = models[i].uniforms();
 		shadow_draws.push_back({ .mesh = &models[i].geometry(), .model = uniforms.model });
+		for (const glm::vec3& corner : models[i].geometry().bounds()) {
+			world_bounds[bound_count++] = glm::vec3(uniforms.model * glm::vec4(corner, 1.0f));
+		}
 		auto* destination = static_cast<std::byte*>(model_uniform_buffer.mapped) + i * model_uniform_stride;
 		std::memcpy(destination, &uniforms, sizeof(uniforms));
 	}
-	return vk_buffer::flush(model_uniform_buffer);
+	// Направление и границы взяты из того же снимка кадра, который используют оба прохода.
+	sun_projection = sun_shadow::fit(sun_area, glm::vec3(scene_uniforms.light_direction),
+		{ world_bounds.data(), bound_count });
+	scene_uniforms.sun_view_projection = sun_projection.view_projection;
+	scene_uniforms.shadow_settings = glm::uvec4(sun_shadows_enabled ? 1u : 0u, isolate_sun ? 1u : 0u, 0u, 0u);
+	// Проверяем реальный формат каждый кадр, в том числе после пересоздания swapchain.
+	scene_uniforms.tone_mapping.z = isSrgbFormat(graphics::internal::context.swapchain_format) ? 0.0f : 1.0f;
+	std::memcpy(scene_uniform_buffer.mapped, &scene_uniforms, sizeof(scene_uniforms));
+	return vk_buffer::flush(scene_uniform_buffer) && vk_buffer::flush(model_uniform_buffer);
 }
 
 void Scene::recordShadowMap(VkCommandBuffer command_buffer) {
-	sun_shadow.record(command_buffer, sun_view_projection, shadow_draws);
+	sun_shadow_map.record(command_buffer, sun_projection.view_projection, shadow_draws, sun_bias);
 }
 
 void Scene::record(VkCommandBuffer command_buffer) {
 	if (show_sun_depth) {
-		sun_shadow.recordDebug(command_buffer, graphics::internal::context.swapchain_extent);
+		sun_shadow_map.recordDebug(command_buffer, graphics::internal::context.swapchain_extent);
 		return;
 	}
 
@@ -287,7 +305,7 @@ bool Scene::createDescriptors() {
 		.range = sizeof(SceneUniforms),
 	};
 
-	const VkDescriptorImageInfo shadow_info = sun_shadow.comparisonDescriptor();
+	const VkDescriptorImageInfo shadow_info = sun_shadow_map.comparisonDescriptor();
 	const VkWriteDescriptorSet writes[] = {
 		{
 			.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,

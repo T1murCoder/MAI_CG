@@ -76,6 +76,15 @@ int main() {
 		const double time = glfwGetTime();
 
 		glfwPollEvents();
+		int framebuffer_width = 0, framebuffer_height = 0;
+		glfwGetFramebufferSize(glfw_window, &framebuffer_width, &framebuffer_height);
+		if (framebuffer_width == 0 || framebuffer_height == 0 || glfwGetWindowAttrib(glfw_window, GLFW_ICONIFIED)) {
+			// Свёрнутое окно не имеет пригодного swapchain extent; ждём восстановления или закрытия.
+			if (!glfwWindowShouldClose(glfw_window)) {
+				glfwWaitEvents();
+			}
+			continue;
+		}
 		ImGui_ImplGlfw_NewFrame();
 
 		ImGui::NewFrame();

@@ -39,7 +39,10 @@ void drawLightList(const char* title, const char* item_label, std::vector<Light>
 } // namespace
 
 glm::vec3 normalizeDirection(glm::vec3 direction) {
-	return glm::dot(direction, direction) > 0.0f ? glm::normalize(direction) : glm::vec3(0.0f, -1.0f, 0.0f);
+	const glm::dvec3 d(direction);
+	const double length_squared = glm::dot(d, d);
+	return std::isfinite(length_squared) && length_squared > 0.0 ?
+		glm::vec3(d / std::sqrt(length_squared)) : glm::vec3(0.0f, -1.0f, 0.0f);
 }
 
 void AmbientLight::drawUi() {
@@ -52,7 +55,7 @@ void AmbientLight::drawUi() {
 void DirectionalLight::drawUi() {
 	ImGui::SeparatorText("Directional Light");
 	ImGui::Checkbox("Enabled", &enabled);
-	ImGui::SliderFloat3("Direction", &direction.x, -1.0f, 1.0f);
+	ImGui::SliderFloat3("Direction", &direction.x, -1.0f, 1.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
 	ImGui::ColorEdit3("Light Color", &color.x);
 	ImGui::SliderFloat("Light Intensity", &intensity, 0.0f, 5.0f);
 }
