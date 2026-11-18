@@ -58,6 +58,14 @@ void ShadowMap::destroy() {
 	readable = false;
 }
 
+VkDescriptorImageInfo ShadowMap::comparisonDescriptor() const {
+	return {
+		.sampler = comparison_sampler,
+		.imageView = view,
+		.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+	};
+}
+
 bool ShadowMap::createImage() {
 	const auto& context = graphics::internal::context;
 	constexpr VkFormatFeatureFlags2 required = VK_FORMAT_FEATURE_2_DEPTH_STENCIL_ATTACHMENT_BIT |
@@ -127,7 +135,6 @@ bool ShadowMap::createSamplers() {
 		.compareOp = VK_COMPARE_OP_LESS,
 		.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE,
 	};
-	// Зарезервирован для применения карты к освещению на следующем этапе.
 	if (vkCreateSampler(context.device, &sampler_info, nullptr, &comparison_sampler) != VK_SUCCESS) {
 		return false;
 	}
@@ -202,6 +209,7 @@ bool ShadowMap::createPipelines() {
 			.cull_mode = VK_CULL_MODE_NONE,
 			.vertex_input = pipeline::VertexInput::PositionOnly,
 			.dynamic_depth_format = format,
+			.depth_bias = true,
 		}, pipeline)) {
 		return false;
 	}
@@ -258,6 +266,8 @@ void ShadowMap::record(VkCommandBuffer command_buffer, const glm::mat4& light_vi
 	vkCmdSetViewport(command_buffer, 0, 1, &viewport);
 	vkCmdSetScissor(command_buffer, 0, 1, &scissor);
 	vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+	// Начальные параметры против самозатенения. Их управление через ImGui — в фазе 3.
+	vkCmdSetDepthBias(command_buffer, 2.0f, 0.0f, 1.5f);
 	for (const Draw& draw : draws) {
 		const shader::ShadowPushConstants push = { .light_model = light_view_projection * draw.model };
 		vkCmdPushConstants(command_buffer, pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(push), &push);

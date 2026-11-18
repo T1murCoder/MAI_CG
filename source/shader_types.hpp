@@ -28,8 +28,12 @@ struct SceneUniforms {
 	glm::vec4 light_color;     // rgb — цвет направленного света, w — интенсивность
 	glm::uvec4 light_counts;   // x — число точечных источников, y — прожекторов (в storage-буферах), zw не используются
 	glm::vec4 tone_mapping;    // x — экспозиция, y — тон-маппинг, z — sRGB-кодирование для UNORM, w не используется
+	glm::mat4 sun_view_projection; // мировые координаты → clip space солнца, как в теневом проходе
+	glm::uvec4 shadow_settings; // x — тени солнца, y — изоляция солнца (1/0), zw не используются
 };
-static_assert(sizeof(SceneUniforms) == 160);
+static_assert(sizeof(SceneUniforms) == 240);
+static_assert(offsetof(SceneUniforms, sun_view_projection) == 160);
+static_assert(offsetof(SceneUniforms, shadow_settings) == 224);
 
 // Одна запись общего dynamic UBO (set 1, binding 0). Stride определяется лимитами GPU,
 // диапазон дескриптора равен sizeof(ModelUniforms); запись выбирается dynamic offset

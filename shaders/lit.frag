@@ -12,11 +12,33 @@ layout(location = 0) out vec4 outColor;
 layout(set = 1, binding = 1) uniform sampler2D albedoTexture;
 layout(set = 1, binding = 2) uniform sampler2D specularTexture;
 layout(set = 1, binding = 3) uniform sampler2D emissiveTexture;
+layout(set = 0, binding = 3) uniform sampler2DShadow sunShadowMap;
 
 // Контракт с shader::AlbedoEffectPushConstants: первые 16 байт общего диапазона gizmos.
 layout(push_constant) uniform AlbedoEffectPushConstants {
 	vec4 animation; // x — время [0, 120), y — включение эффекта
 } effect;
+
+float sunVisibility(vec3 world_position) {
+	if (scene.shadow_settings.x == 0u) {
+		return 1.0;
+	}
+	const vec4 clip = scene.sun_view_projection * vec4(world_position, 1.0);
+	if (clip.w <= 0.0) {
+		return 1.0;
+	}
+	const vec3 projected = clip.xyz / clip.w;
+	const vec2 uv = projected.xy * 0.5 + 0.5;
+	// В Vulkan Z уже в [0, 1]. Инверсия Y включена в матрицу проекции света.
+	// Объекты вне объёма карты не затеняются этой картой.
+	if (any(lessThan(uv, vec2(0.0))) || any(greaterThanEqual(uv, vec2(1.0))) ||
+		projected.z < 0.0 || projected.z >= 1.0) {
+		return 1.0;
+	}
+	// Один mip: явный LOD не требует производных в ветке проверки границ.
+	// Comparison sampler возвращает 1, когда reference < сохранённой глубины.
+	return textureLod(sunShadowMap, vec3(uv, projected.z), 0.0);
+}
 
 vec3 sampleAlbedo(vec2 uv) {
 	if (effect.animation.y < 0.5) {
@@ -50,16 +72,20 @@ void main() {
 	const vec3 specular = object.specular.rgb * texture(specularTexture, materialUv).rgb;
 	const float shininess = object.specular.w;
 
-	vec3 color = scene.ambient.rgb * scene.ambient.w * albedo;
+	const bool sun_only = scene.shadow_settings.y != 0u;
+	// Изоляция влияет только на вычисление освещения; CPU-настройки источников сохраняются.
+	const uvec2 local_light_counts = sun_only ? uvec2(0u) : scene.light_counts.xy;
+	vec3 color = sun_only ? vec3(0.0) : scene.ambient.rgb * scene.ambient.w * albedo;
 
 	// light_direction — куда летят лучи, а для модели нужно направление от точки к источнику
 	if (scene.light_direction.w > 0.0) {
 		const vec3 radiance = scene.light_color.rgb * scene.light_color.w;
-		color += blinnPhong(N, -scene.light_direction.xyz, V, radiance, albedo, specular, shininess);
+		const float visibility = sunVisibility(fragWorldPosition);
+		color += visibility * blinnPhong(N, -scene.light_direction.xyz, V, radiance, albedo, specular, shininess);
 	}
 
 	// Точечные источники: затухание по закону обратных квадратов
-	for (uint i = 0; i < scene.light_counts.x; ++i) {
+	for (uint i = 0; i < local_light_counts.x; ++i) {
 		const PointLight light = point_lights[i];
 
 		vec3 L;
@@ -69,7 +95,7 @@ void main() {
 	}
 
 	// Прожекторы: то же затухание, умноженное на мягкий край конуса
-	for (uint i = 0; i < scene.light_counts.y; ++i) {
+	for (uint i = 0; i < local_light_counts.y; ++i) {
 		const SpotLight light = spot_lights[i];
 
 		vec3 L;

@@ -26,6 +26,9 @@ public:
 	bool create();
 	void destroy();
 
+	// Дескриптор для sampler2DShadow; перед чтением карты нужно вызвать record().
+	VkDescriptorImageInfo comparisonDescriptor() const;
+
 	// Записывает геометрию без материалов и переводит карту в состояние для чтения шейдером.
 	void record(VkCommandBuffer command_buffer, const glm::mat4& light_view_projection,
 				std::span<const Draw> draws);

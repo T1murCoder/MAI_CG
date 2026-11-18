@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstring>
 #include <iostream>
+#include <iterator>
 #include <limits>
 #include <span>
 
@@ -26,6 +27,13 @@ constexpr VkDescriptorSetLayoutBinding kUniformBinding = {
 	.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
 	.descriptorCount = 1,
 	.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+};
+
+constexpr VkDescriptorSetLayoutBinding kSunShadowBinding = {
+	.binding = 3,
+	.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+	.descriptorCount = 1,
+	.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
 };
 
 glm::mat4 sunViewProjection(glm::vec3 direction) {
@@ -87,7 +95,7 @@ bool createSetLayout(std::span<const VkDescriptorSetLayoutBinding> bindings, VkD
 bool Scene::create() {
 	if (!cube_mesh.create(geometry::makeCube()) || !white_cube_mesh.create(geometry::makeCube(false)) ||
 		!plane_mesh.create(geometry::makePlane()) ||
-		!createModels() || !createDescriptors() || !createPipeline() || !sun_shadow.create()) {
+		!createModels() || !sun_shadow.create() || !createDescriptors() || !createPipeline()) {
 		// В том числе освобождаем уже созданные ресурсы при частичной ошибке инициализации.
 		destroy();
 		return false;
@@ -99,7 +107,6 @@ bool Scene::create() {
 void Scene::destroy() {
 	auto& context = graphics::internal::context;
 
-	sun_shadow.destroy();
 	light_gizmos.destroy();
 	vkDestroyPipeline(context.device, pipeline, nullptr);
 	vkDestroyPipelineLayout(context.device, pipeline_layout, nullptr);
@@ -114,6 +121,7 @@ void Scene::destroy() {
 
 	vkDestroyDescriptorPool(context.device, descriptor_pool, nullptr);
 	vkDestroyDescriptorSetLayout(context.device, scene_set_layout, nullptr);
+	sun_shadow.destroy();
 
 	plane_mesh.destroy();
 	white_cube_mesh.destroy();
@@ -136,6 +144,11 @@ void Scene::drawUi() {
 	ImGui::Begin("Scene");
 
 	if (ImGui::CollapsingHeader("Shadow Mapping", ImGuiTreeNodeFlags_DefaultOpen)) {
+		ImGui::Checkbox("Sun shadows", &sun_shadows_enabled);
+		ImGui::Checkbox("Isolate sun", &isolate_sun);
+		if (isolate_sun) {
+			ImGui::TextWrapped("Ambient, point and spot lighting are hidden. Their settings are preserved; emissive materials remain visible.");
+		}
 		ImGui::Checkbox("Show sun depth map", &show_sun_depth);
 		ImGui::Text("Sun depth: %u x %u", ShadowMap::kResolution, ShadowMap::kResolution);
 		if (show_sun_depth) {
@@ -163,6 +176,8 @@ bool Scene::prepareFrame(float aspect) {
 	lighting.upload(scene_uniforms);
 	// Используем уже нормализованное направление из того же снимка, что читает lit.frag.
 	sun_view_projection = sunViewProjection(glm::vec3(scene_uniforms.light_direction));
+	scene_uniforms.sun_view_projection = sun_view_projection;
+	scene_uniforms.shadow_settings = glm::uvec4(sun_shadows_enabled ? 1u : 0u, isolate_sun ? 1u : 0u, 0u, 0u);
 	// Проверяем реальный формат каждый кадр, в том числе после пересоздания swapchain.
 	scene_uniforms.tone_mapping.z = isSrgbFormat(graphics::internal::context.swapchain_format) ? 0.0f : 1.0f;
 	std::memcpy(scene_uniform_buffer.mapped, &scene_uniforms, sizeof(scene_uniforms));
@@ -220,9 +235,11 @@ void Scene::record(VkCommandBuffer command_buffer) {
 bool Scene::createDescriptors() {
 	auto& context = graphics::internal::context;
 
-	// Набор сцены: uniform-буфер (binding 0), массивы точечных источников (binding 1) и прожекторов (binding 2);
+	// Набор сцены: UBO (binding 0), point/spot SSBO (1/2), карта теней солнца (3);
 	// наборы материалов (set 1) создаются каталогом после выделения общего dynamic UBO
-	const VkDescriptorSetLayoutBinding scene_bindings[] = { kUniformBinding, storageBinding(1), storageBinding(2) };
+	const VkDescriptorSetLayoutBinding scene_bindings[] = {
+		kUniformBinding, storageBinding(1), storageBinding(2), kSunShadowBinding,
+	};
 	if (!createSetLayout(scene_bindings, scene_set_layout)) {
 		return false;
 	}
@@ -232,6 +249,7 @@ bool Scene::createDescriptors() {
 	const VkDescriptorPoolSize pool_sizes[] = {
 		{ .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1 },
 		{ .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 2 },
+		{ .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1 },
 	};
 
 	const VkDescriptorPoolCreateInfo pool_info = {
@@ -269,16 +287,27 @@ bool Scene::createDescriptors() {
 		.range = sizeof(SceneUniforms),
 	};
 
-	const VkWriteDescriptorSet write = {
-		.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-		.dstSet = scene_descriptor_set,
-		.dstBinding = 0,
-		.descriptorCount = 1,
-		.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-		.pBufferInfo = &buffer_info,
+	const VkDescriptorImageInfo shadow_info = sun_shadow.comparisonDescriptor();
+	const VkWriteDescriptorSet writes[] = {
+		{
+			.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			.dstSet = scene_descriptor_set,
+			.dstBinding = 0,
+			.descriptorCount = 1,
+			.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+			.pBufferInfo = &buffer_info,
+		},
+		{
+			.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			.dstSet = scene_descriptor_set,
+			.dstBinding = kSunShadowBinding.binding,
+			.descriptorCount = 1,
+			.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+			.pImageInfo = &shadow_info,
+		},
 	};
 
-	vkUpdateDescriptorSets(context.device, 1, &write, 0, nullptr);
+	vkUpdateDescriptorSets(context.device, uint32_t(std::size(writes)), writes, 0, nullptr);
 
 	VkPhysicalDeviceProperties properties;
 	vkGetPhysicalDeviceProperties(context.physical_device, &properties);

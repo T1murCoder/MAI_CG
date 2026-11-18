@@ -17,8 +17,8 @@
 // В шейдерах set 0 — данные сцены, set 1 — материал и общий dynamic UBO моделей
 class Scene {
 public:
-	// Создаёт меши, дескрипторы (вместе со storage-буферами источников света), модели,
-	// pipeline моделей и пайплайны визуализации источников
+	// Создаёт меши и модели, карту солнца, дескрипторы (включая storage-буферы света),
+	// pipeline моделей и пайплайны визуализации источников.
 	bool create();
 
 	// Уничтожает все ресурсы сцены в порядке, обратном созданию; GPU уже должен простаивать
@@ -62,6 +62,8 @@ private:
 	ShadowMap sun_shadow;
 	glm::mat4 sun_view_projection = glm::mat4(1.0f);
 	bool show_sun_depth = false;
+	bool sun_shadows_enabled = true;
+	bool isolate_sun = false;
 	double albedo_effect_time = 0.0; // CPU-часы эффекта; время и включение идут только через push constants
 
 	// Layout и пул набора сцены (set 0); set 1 принадлежит каталогу материалов

@@ -123,6 +123,7 @@ bool create(const Config& config, VkPipeline& out) {
 		.polygonMode = VK_POLYGON_MODE_FILL,
 		.cullMode = config.cull_mode,
 		.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+		.depthBiasEnable = config.depth_bias ? VK_TRUE : VK_FALSE,
 		.lineWidth = 1.0f,
 	};
 
@@ -152,15 +153,16 @@ bool create(const Config& config, VkPipeline& out) {
 		.pAttachments = config.dynamic_depth_format == VK_FORMAT_UNDEFINED ? &color_blend_attachment : nullptr,
 	};
 
-	// Viewport и scissor задаются в command buffer каждый кадр, без пересоздания pipeline (важно при ресайзе окна)
+	// Depth bias динамический только у теневого pipeline; viewport/scissor — у всех.
 	const VkDynamicState dynamic_states[] = {
 		VK_DYNAMIC_STATE_VIEWPORT,
 		VK_DYNAMIC_STATE_SCISSOR,
+		VK_DYNAMIC_STATE_DEPTH_BIAS,
 	};
 
 	const VkPipelineDynamicStateCreateInfo dynamic_state = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
-		.dynamicStateCount = sizeof(dynamic_states) / sizeof(dynamic_states[0]),
+		.dynamicStateCount = config.depth_bias ? 3u : 2u,
 		.pDynamicStates = dynamic_states,
 	};
 

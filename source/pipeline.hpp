@@ -20,6 +20,8 @@ struct Config {
 	VertexInput vertex_input = VertexInput::Mesh;
 	// UNDEFINED — основной render pass; иначе depth-only Dynamic Rendering с этим форматом.
 	VkFormat dynamic_depth_format = VK_FORMAT_UNDEFINED;
+	// При включении параметры задаются через vkCmdSetDepthBias перед отрисовкой.
+	bool depth_bias = false;
 };
 
 // Читает скомпилированный SPIR-V файл из SHADER_DIR и создаёт из него VkShaderModule
