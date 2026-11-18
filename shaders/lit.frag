@@ -13,17 +13,15 @@ layout(set = 1, binding = 1) uniform sampler2D albedoTexture;
 layout(set = 1, binding = 2) uniform sampler2D specularTexture;
 layout(set = 1, binding = 3) uniform sampler2D emissiveTexture;
 layout(set = 0, binding = 3) uniform sampler2DShadow sunShadowMap;
+layout(set = 0, binding = 4) uniform sampler2DShadow spotShadowMap;
 
 // Контракт с shader::AlbedoEffectPushConstants: первые 16 байт общего диапазона gizmos.
 layout(push_constant) uniform AlbedoEffectPushConstants {
 	vec4 animation; // x — время [0, 120), y — включение эффекта
 } effect;
 
-float sunVisibility(vec3 world_position) {
-	if (scene.shadow_settings.x == 0u) {
-		return 1.0;
-	}
-	const vec4 clip = scene.sun_view_projection * vec4(world_position, 1.0);
+float shadowVisibility(sampler2DShadow depth_map, mat4 light_view_projection, vec3 world_position) {
+	const vec4 clip = light_view_projection * vec4(world_position, 1.0);
 	if (clip.w <= 0.0) {
 		return 1.0;
 	}
@@ -37,7 +35,7 @@ float sunVisibility(vec3 world_position) {
 	}
 	// Один mip: явный LOD не требует производных в ветке проверки границ.
 	// Comparison sampler возвращает 1, когда reference < сохранённой глубины.
-	return textureLod(sunShadowMap, vec3(uv, projected.z), 0.0);
+	return textureLod(depth_map, vec3(uv, projected.z), 0.0);
 }
 
 vec3 sampleAlbedo(vec2 uv) {
@@ -72,20 +70,24 @@ void main() {
 	const vec3 specular = object.specular.rgb * texture(specularTexture, materialUv).rgb;
 	const float shininess = object.specular.w;
 
-	const bool sun_only = scene.shadow_settings.y != 0u;
+	const bool sun_only = scene.shadow_settings.y == 1u;
+	const bool spot_only = scene.shadow_settings.y == 2u;
+	const bool isolated = sun_only || spot_only;
 	// Изоляция влияет только на вычисление освещения; CPU-настройки источников сохраняются.
-	const uvec2 local_light_counts = sun_only ? uvec2(0u) : scene.light_counts.xy;
-	vec3 color = sun_only ? vec3(0.0) : scene.ambient.rgb * scene.ambient.w * albedo;
+	const uint point_count = isolated ? 0u : scene.light_counts.x;
+	const uint spot_count = sun_only ? 0u : scene.light_counts.y;
+	vec3 color = isolated ? vec3(0.0) : scene.ambient.rgb * scene.ambient.w * albedo;
 
 	// light_direction — куда летят лучи, а для модели нужно направление от точки к источнику
-	if (scene.light_direction.w > 0.0) {
+	if (scene.light_direction.w > 0.0 && !spot_only) {
 		const vec3 radiance = scene.light_color.rgb * scene.light_color.w;
-		const float visibility = sunVisibility(fragWorldPosition);
+		const float visibility = scene.shadow_settings.x != 0u ?
+			shadowVisibility(sunShadowMap, scene.sun_view_projection, fragWorldPosition) : 1.0;
 		color += visibility * blinnPhong(N, -scene.light_direction.xyz, V, radiance, albedo, specular, shininess);
 	}
 
 	// Точечные источники: затухание по закону обратных квадратов
-	for (uint i = 0; i < local_light_counts.x; ++i) {
+	for (uint i = 0; i < point_count; ++i) {
 		const PointLight light = point_lights[i];
 
 		vec3 L;
@@ -95,14 +97,20 @@ void main() {
 	}
 
 	// Прожекторы: то же затухание, умноженное на мягкий край конуса
-	for (uint i = 0; i < local_light_counts.y; ++i) {
+	for (uint i = 0; i < spot_count; ++i) {
+		const bool selected = i + 1u == scene.shadow_settings.w;
+		if (spot_only && !selected) {
+			continue;
+		}
 		const SpotLight light = spot_lights[i];
 
 		vec3 L;
 		const float falloff = inverseSquareFalloff(light.position.xyz, fragWorldPosition, L);
 		const float spot = spotFactor(L, light.direction.xyz, light.cutoff.x, light.cutoff.y);
 		const vec3 radiance = light.color.rgb * light.color.w * falloff * spot;
-		color += blinnPhong(N, L, V, radiance, albedo, specular, shininess);
+		const float visibility = selected && scene.shadow_settings.z != 0u ?
+			shadowVisibility(spotShadowMap, scene.spot_view_projection, fragWorldPosition) : 1.0;
+		color += visibility * blinnPhong(N, L, V, radiance, albedo, specular, shininess);
 	}
 
 	// Emissive декодируется из sRGB и прибавляется в линейном пространстве после

@@ -36,6 +36,13 @@ constexpr VkDescriptorSetLayoutBinding kSunShadowBinding = {
 	.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
 };
 
+constexpr VkDescriptorSetLayoutBinding kSpotShadowBinding = {
+	.binding = 4,
+	.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+	.descriptorCount = 1,
+	.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+};
+
 bool isSrgbFormat(VkFormat format) {
 	switch (format) {
 	case VK_FORMAT_R8_SRGB:
@@ -113,6 +120,7 @@ void Scene::destroy() {
 	sun_shadow_map.destroy();
 	spot_shadow_map.destroy();
 	spot_projection.reset();
+	spot_descriptor_uses_map = false;
 
 	plane_mesh.destroy();
 	white_cube_mesh.destroy();
@@ -137,8 +145,8 @@ void Scene::drawUi() {
 	drawShadowUi();
 	camera.drawUi();
 	lighting.drawUi();
-	if (lighting.shadowSpotIndex() < 0 && view == View::SpotDepth) {
-		view = View::Scene;
+	if (lighting.shadowSpotIndex() < 0) {
+		resetSpotModes();
 	}
 	light_gizmos.drawUi();
 
@@ -156,13 +164,27 @@ void Scene::drawShadowUi() {
 	const float fps = ImGui::GetIO().Framerate;
 	ImGui::Text("Frame (with VSync): %.2f ms | %.1f FPS", fps > 0.0f ? 1000.0f / fps : 0.0f, fps);
 	ImGui::Checkbox("Sun shadows", &sun_shadows_enabled);
-	ImGui::Checkbox("Isolate sun", &isolate_sun);
-	if (isolate_sun) {
+	bool sun_only = isolation == Isolation::Sun;
+	if (ImGui::Checkbox("Isolate sun", &sun_only)) {
+		isolation = sun_only ? Isolation::Sun : Isolation::None;
+	}
+	if (isolation == Isolation::Sun) {
 		ImGui::TextWrapped("Ambient, point and spot lighting are hidden. Their settings are preserved; emissive materials remain visible.");
 	}
 	lighting.drawShadowSpotUi();
-	if (lighting.shadowSpotIndex() < 0 && view == View::SpotDepth) {
-		view = View::Scene;
+	const bool has_spot = lighting.shadowSpotIndex() >= 0;
+	if (!has_spot) {
+		resetSpotModes();
+	}
+	ImGui::BeginDisabled(!has_spot);
+	ImGui::Checkbox("Spotlight shadows", &spot_shadows_enabled);
+	bool spot_only = isolation == Isolation::Spot;
+	if (ImGui::Checkbox("Isolate spotlight", &spot_only)) {
+		isolation = spot_only ? Isolation::Spot : Isolation::None;
+	}
+	ImGui::EndDisabled();
+	if (isolation == Isolation::Spot) {
+		ImGui::TextWrapped("Only the selected spotlight lights the scene. Other light settings and emissive materials are preserved.");
 	}
 	const char* views[] = { "Scene", "Sun depth", "Spotlight depth" };
 	if (ImGui::BeginCombo("View", views[int(view)])) {
@@ -210,6 +232,49 @@ void Scene::drawShadowUi() {
 	sun_bias.sanitize();
 	ImGui::Text("World units / texel: %.4f", sun_area.size / ShadowMap::kResolution);
 	ImGui::Text("Auto depth range: %.2f .. %.2f", sun_projection.near_plane, sun_projection.far_plane);
+
+	ImGui::SeparatorText("Spotlight depth bias");
+	ImGui::BeginDisabled(!has_spot);
+	ImGui::PushID("spot_bias");
+	ImGui::SliderFloat("Constant factor", &spot_bias.constant, 0.0f,
+		ShadowMap::DepthBias::kMaxConstant, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+	ImGui::SliderFloat("Slope factor", &spot_bias.slope, 0.0f,
+		ShadowMap::DepthBias::kMaxSlope, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+	if (ImGui::Button("Reset spotlight bias")) {
+		spot_bias = {};
+	}
+	ImGui::PopID();
+	ImGui::EndDisabled();
+	spot_bias.sanitize();
+}
+
+void Scene::resetSpotModes() {
+	if (view == View::SpotDepth) {
+		view = View::Scene;
+	}
+	if (isolation == Isolation::Spot) {
+		isolation = Isolation::None;
+	}
+}
+
+void Scene::updateSpotShadowDescriptor() {
+	const bool use_spot_map = spot_projection.has_value();
+	if (use_spot_map == spot_descriptor_uses_map) {
+		return;
+	}
+	// Без выбранного источника карта прожектора может ещё не иметь shader-read layout.
+	// Привязываем готовую карту солнца; флаг в UBO при этом отключает тени прожектора.
+	const VkDescriptorImageInfo image_info = (use_spot_map ? spot_shadow_map : sun_shadow_map).comparisonDescriptor();
+	const VkWriteDescriptorSet write = {
+		.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+		.dstSet = scene_descriptor_set,
+		.dstBinding = kSpotShadowBinding.binding,
+		.descriptorCount = 1,
+		.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+		.pImageInfo = &image_info,
+	};
+	vkUpdateDescriptorSets(graphics::internal::context.device, 1, &write, 0, nullptr);
+	spot_descriptor_uses_map = use_spot_map;
 }
 
 // Единственное место, где можно писать в GPU-буферы (memcpy, пересоздание storage-буферов,
@@ -236,11 +301,15 @@ bool Scene::prepareFrame(float aspect) {
 	sun_projection = sun_shadow::fit(sun_area, glm::vec3(scene_uniforms.light_direction),
 		{ world_bounds.data(), bound_count });
 	spot_projection = selected_spot ? spot_shadow::fit(*selected_spot, { world_bounds.data(), bound_count }) : std::nullopt;
-	if (!spot_projection && view == View::SpotDepth) {
-		view = View::Scene;
+	if (!spot_projection) {
+		resetSpotModes();
 	}
+	updateSpotShadowDescriptor();
 	scene_uniforms.sun_view_projection = sun_projection.view_projection;
-	scene_uniforms.shadow_settings = glm::uvec4(sun_shadows_enabled ? 1u : 0u, isolate_sun ? 1u : 0u, 0u, 0u);
+	scene_uniforms.spot_view_projection = spot_projection ? spot_projection->view_projection : glm::mat4(1.0f);
+	scene_uniforms.shadow_settings = glm::uvec4(sun_shadows_enabled ? 1u : 0u, uint32_t(isolation),
+		spot_shadows_enabled && spot_projection ? 1u : 0u,
+		spot_projection ? uint32_t(lighting.shadowSpotIndex()) + 1u : 0u);
 	// Проверяем реальный формат каждый кадр, в том числе после пересоздания swapchain.
 	scene_uniforms.tone_mapping.z = isSrgbFormat(graphics::internal::context.swapchain_format) ? 0.0f : 1.0f;
 	std::memcpy(scene_uniform_buffer.mapped, &scene_uniforms, sizeof(scene_uniforms));
@@ -298,10 +367,10 @@ void Scene::record(VkCommandBuffer command_buffer) {
 bool Scene::createDescriptors() {
 	auto& context = graphics::internal::context;
 
-	// Набор сцены: UBO (binding 0), point/spot SSBO (1/2), карта теней солнца (3);
+	// Набор сцены: UBO (0), point/spot SSBO (1/2), карты солнца и прожектора (3/4);
 	// наборы материалов (set 1) создаются каталогом после выделения общего dynamic UBO
 	const VkDescriptorSetLayoutBinding scene_bindings[] = {
-		kUniformBinding, storageBinding(1), storageBinding(2), kSunShadowBinding,
+		kUniformBinding, storageBinding(1), storageBinding(2), kSunShadowBinding, kSpotShadowBinding,
 	};
 	if (!createSetLayout(scene_bindings, scene_set_layout)) {
 		return false;
@@ -312,7 +381,7 @@ bool Scene::createDescriptors() {
 	const VkDescriptorPoolSize pool_sizes[] = {
 		{ .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount = 1 },
 		{ .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 2 },
-		{ .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1 },
+		{ .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 2 },
 	};
 
 	const VkDescriptorPoolCreateInfo pool_info = {
@@ -368,9 +437,19 @@ bool Scene::createDescriptors() {
 			.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
 			.pImageInfo = &shadow_info,
 		},
+		{
+			.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			.dstSet = scene_descriptor_set,
+			.dstBinding = kSpotShadowBinding.binding,
+			.descriptorCount = 1,
+			.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+			// До первого выбора прожектора используется всегда генерируемая карта солнца.
+			.pImageInfo = &shadow_info,
+		},
 	};
 
 	vkUpdateDescriptorSets(context.device, uint32_t(std::size(writes)), writes, 0, nullptr);
+	spot_descriptor_uses_map = false;
 
 	VkPhysicalDeviceProperties properties;
 	vkGetPhysicalDeviceProperties(context.physical_device, &properties);

@@ -34,11 +34,15 @@ struct SceneUniforms {
 	glm::uvec4 light_counts;   // x — число точечных источников, y — прожекторов (в storage-буферах), zw не используются
 	glm::vec4 tone_mapping;    // x — экспозиция, y — тон-маппинг, z — sRGB-кодирование для UNORM, w не используется
 	glm::mat4 sun_view_projection; // мировые координаты → clip space солнца, как в теневом проходе
-	glm::uvec4 shadow_settings; // x — тени солнца, y — изоляция солнца (1/0), zw не используются
+	// x — тени солнца, y — изоляция (0: нет, 1: солнце, 2: прожектор),
+	// z — тени прожектора, w — индекс выбранного прожектора + 1 (0: нет доступного).
+	glm::uvec4 shadow_settings;
+	glm::mat4 spot_view_projection; // та же матрица, что используется при записи карты прожектора
 };
-static_assert(sizeof(SceneUniforms) == 240);
+static_assert(sizeof(SceneUniforms) == 304);
 static_assert(offsetof(SceneUniforms, sun_view_projection) == 160);
 static_assert(offsetof(SceneUniforms, shadow_settings) == 224);
+static_assert(offsetof(SceneUniforms, spot_view_projection) == 240);
 
 // Одна запись общего dynamic UBO (set 1, binding 0). Stride определяется лимитами GPU,
 // диапазон дескриптора равен sizeof(ModelUniforms); запись выбирается dynamic offset

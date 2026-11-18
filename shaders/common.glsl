@@ -16,7 +16,10 @@ layout(set = 0, binding = 0) uniform SceneUniforms {
 	uvec4 light_counts;   // x — число точечных источников, y — прожекторов
 	vec4 tone_mapping;    // x — экспозиция, y — тон-маппинг, z — ручное sRGB-кодирование для UNORM swapchain
 	mat4 sun_view_projection; // мировые координаты → clip space солнца
-	uvec4 shadow_settings; // x — тени солнца, y — изоляция солнца (1/0), zw не используются
+	// x — тени солнца; y — изоляция (0: нет, 1: солнце, 2: прожектор);
+	// z — тени прожектора; w — индекс выбранного прожектора + 1 (0: нет доступного).
+	uvec4 shadow_settings;
+	mat4 spot_view_projection; // мировые координаты → clip space выбранного прожектора
 } scene;
 
 // Данные текущей модели (set 1, общий dynamic UBO): запись выбирается dynamic offset при draw

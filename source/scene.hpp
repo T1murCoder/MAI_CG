@@ -44,11 +44,14 @@ private:
 	// Верхняя граница числа моделей сцены
 	static constexpr uint32_t kMaxModels = 32;
 	enum class View { Scene, SunDepth, SpotDepth };
+	enum class Isolation : uint32_t { None = 0, Sun = 1, Spot = 2 };
 
 	bool createDescriptors();
 	bool createModels();
 	bool createPipeline();
 	void drawShadowUi();
+	void resetSpotModes();
+	void updateSpotShadowDescriptor();
 
 	Camera camera;
 	Lighting lighting;
@@ -73,7 +76,8 @@ private:
 	std::optional<spot_shadow::Projection> spot_projection;
 	View view = View::Scene;
 	bool sun_shadows_enabled = true;
-	bool isolate_sun = false;
+	bool spot_shadows_enabled = true;
+	Isolation isolation = Isolation::None;
 	double albedo_effect_time = 0.0; // CPU-часы эффекта; время и включение идут только через push constants
 
 	// Layout и пул набора сцены (set 0); set 1 принадлежит каталогу материалов
@@ -83,6 +87,7 @@ private:
 	// Uniform-буфер с общими данными сцены и его набор дескрипторов (set 0)
 	vk_buffer::Buffer scene_uniform_buffer;
 	VkDescriptorSet scene_descriptor_set = VK_NULL_HANDLE;
+	bool spot_descriptor_uses_map = false; // иначе binding 4 ссылается на готовую карту солнца
 
 	// Общий dynamic UBO моделей: запись i начинается по адресу i * model_uniform_stride.
 	// Диапазон дескриптора — одна ModelUniforms, stride учитывает выравнивание GPU.
